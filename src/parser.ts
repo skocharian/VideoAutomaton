@@ -41,34 +41,42 @@ function extractCampaignId(brief: string): string {
 
 function extractVariants(brief: string): Variant[] {
   const variants: Variant[] = [];
-
-  // V1: "Headline" / "Subheadline"  or  V1: Headline | Subheadline
-  const variantPattern =
-    /V(\d+)[:\s\-–]+[""]?([^""\/\|\n]+)[""]?\s*[\/\|]\s*[""]?([^""\n]+?)[""]?\s*$/gim;
+  const normalizedBrief = brief.replace(/\r\n/g, "\n");
+  const variantBlockPattern =
+    /(?:^|\n)\s*V(\d+)\s*[:\-–]\s*([\s\S]*?)(?=(?:\n\s*V\d+\s*[:\-–])|(?:\n\s*(?:Screen|S)\s*\d+\s*[:\-–])|$)/gi;
 
   let match;
-  while ((match = variantPattern.exec(brief)) !== null) {
+  while ((match = variantBlockPattern.exec(normalizedBrief)) !== null) {
+    const block = match[2].trim();
+    if (!block) continue;
+
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) continue;
+
+    const inlineSplit = lines[0].match(/^(.*?)\s*[\/|]\s*(.+)$/);
+    const headline = stripEnclosingQuotes(
+      inlineSplit ? inlineSplit[1] : lines[0]
+    );
+    const subheadline = stripEnclosingQuotes(
+      inlineSplit ? inlineSplit[2] : lines.slice(1).join("\n")
+    );
+
     variants.push({
       id: `V${match[1]}`,
-      headline: match[2].trim(),
-      subheadline: match[3].trim(),
+      headline,
+      subheadline,
     });
   }
 
-  // Fallback: simpler two-line format
-  if (variants.length === 0) {
-    const simplePattern =
-      /V(\d+)[:\s\-–]+(.+?)(?:\n\s+(.+?))?(?=\nV\d|\n\n|$)/gis;
-    while ((match = simplePattern.exec(brief)) !== null) {
-      variants.push({
-        id: `V${match[1]}`,
-        headline: match[2].trim(),
-        subheadline: match[3]?.trim() ?? "",
-      });
-    }
-  }
-
   return variants;
+}
+
+function stripEnclosingQuotes(value: string): string {
+  return value.replace(/^[\"'“”]+|[\"'“”]+$/g, "").trim();
 }
 
 /**
@@ -101,6 +109,7 @@ function extractScreens(brief: string): Record<string, ScreenText> {
     const block = match[2].trim();
 
     if (!block) continue;
+    if (num === "1" && /(?:^|\n)\s*V\d+\s*[:\-–]/i.test(block)) continue;
 
     const screen = parseScreenBlock(block);
     screens[num] = screen;
@@ -116,24 +125,51 @@ function extractScreens(brief: string): Record<string, ScreenText> {
  */
 function parseScreenBlock(block: string): ScreenText {
   const screen: ScreenText = {};
+  const lines = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  const headerMatch = block.match(/header[:\s]+(.+?)(?=\n|$)/i);
-  const bodyMatch = block.match(/body[:\s]+(.+?)(?=\n(?:header|disclaimer)|$)/is);
-  const disclaimerMatch = block.match(/disclaimer[:\s]+(.+?)(?=\n(?:header|body)|$)/is);
-
-  if (headerMatch || bodyMatch) {
-    if (headerMatch) screen.header = headerMatch[1].trim();
-    if (bodyMatch) screen.body = bodyMatch[1].trim();
-    if (disclaimerMatch) screen.disclaimer = disclaimerMatch[1].trim();
-  } else {
-    // No labels — check if there are two lines (first = header, rest = body)
-    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length >= 2) {
-      screen.header = lines[0];
-      screen.body = lines.slice(1).join("\n");
-    } else {
-      screen.body = block;
+  // Parse explicit labels only when they appear at the start of a line.
+  const labeled: ScreenText = {};
+  let currentField: keyof ScreenText | null = null;
+  for (const line of lines) {
+    const labelMatch = line.match(/^(header|body|disclaimer)\s*:\s*(.*)$/i);
+    if (labelMatch) {
+      currentField = labelMatch[1].toLowerCase() as keyof ScreenText;
+      labeled[currentField] = labelMatch[2].trim();
+      continue;
     }
+
+    if (currentField) {
+      labeled[currentField] = [labeled[currentField], line]
+        .filter(Boolean)
+        .join("\n");
+    }
+  }
+
+  if (labeled.header || labeled.body || labeled.disclaimer) {
+    if (labeled.header) screen.header = labeled.header.trim();
+    if (labeled.body) screen.body = labeled.body.trim();
+    if (labeled.disclaimer) screen.disclaimer = labeled.disclaimer.trim();
+    return screen;
+  }
+
+  const disclaimerStart = lines.findIndex((line) => line.startsWith("*"));
+  const contentLines =
+    disclaimerStart >= 0 ? lines.slice(0, disclaimerStart) : lines;
+  const disclaimerLines =
+    disclaimerStart >= 0 ? lines.slice(disclaimerStart) : [];
+
+  if (contentLines.length >= 2) {
+    screen.header = contentLines[0];
+    screen.body = contentLines.slice(1).join("\n");
+  } else if (contentLines.length === 1) {
+    screen.body = contentLines[0];
+  }
+
+  if (disclaimerLines.length > 0) {
+    screen.disclaimer = disclaimerLines.join("\n");
   }
 
   return screen;
