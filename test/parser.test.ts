@@ -65,20 +65,69 @@ V2: Headline two | Sub two
     expect(result.variants[1].subheadline).toBe("Sub two");
   });
 
-  it("extracts screen text blocks", () => {
+  it("extracts screens with header/body labels", () => {
     const brief = `
-Screen 2: The science is clear: Your breathing triggers how your nervous system reacts.
-Screen 3: Guided breathwork sessions
-Personalized plans
-Real-time biofeedback
-Screen 4: Download Breethe free today
+Screen 2:
+Header: The science is clear
+Body: Your breathing triggers how your nervous system reacts.
+Screen 3:
+Header: Stress changes breathing
+Body: Guided breathwork sessions
     `.trim();
 
     const result = parseBrief({ ...baseBriefReq, brief });
-    expect(result.screens).toHaveProperty("screen2");
-    expect(result.screens["screen2"]).toContain("science is clear");
-    expect(result.screens).toHaveProperty("screen3");
-    expect(result.screens).toHaveProperty("screen4");
+    expect(result.screens["2"]).toBeDefined();
+    expect(result.screens["2"].header).toBe("The science is clear");
+    expect(result.screens["2"].body).toContain("breathing triggers");
+    expect(result.screens["3"]).toBeDefined();
+    expect(result.screens["3"].header).toBe("Stress changes breathing");
+  });
+
+  it("treats two-line screen blocks as header + body", () => {
+    const brief = `
+Screen 4:
+Shallow breaths = high stress.
+This starves your blood of oxygen.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["4"].header).toBe("Shallow breaths = high stress.");
+    expect(result.screens["4"].body).toContain("starves your blood");
+  });
+
+  it("treats single-line screen block as body", () => {
+    const brief = `
+Screen 2: The science is clear about breathing.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["2"].body).toContain("science is clear");
+  });
+
+  it("extracts disclaimer field", () => {
+    const brief = `
+Screen 8:
+Header: Stop the anxious spiral
+Body: Get fast-acting breathing exercises
+Disclaimer: This is not a replacement for medical treatment.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["8"].disclaimer).toContain("not a replacement");
+  });
+
+  it("handles dynamic number of screens", () => {
+    const brief = `
+Screen 1: Intro
+Screen 2: Middle
+Screen 3: Another
+Screen 4: Yet another
+Screen 5: Almost done
+Screen 6: Final
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(Object.keys(result.screens)).toHaveLength(6);
   });
 
   it("defaults sizes to 9:16 and 4:5 when empty", () => {
@@ -122,7 +171,7 @@ describe("computeVideoCount", () => {
       audio: "",
       badge: "",
     });
-    expect(count).toBe(12); // 2 * 3 * 2
+    expect(count).toBe(12);
   });
 
   it("treats empty variants/backgrounds as 1", () => {
@@ -135,6 +184,6 @@ describe("computeVideoCount", () => {
       audio: "",
       badge: "",
     });
-    expect(count).toBe(1); // 1 * 1 * 1
+    expect(count).toBe(1);
   });
 });

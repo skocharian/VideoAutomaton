@@ -218,11 +218,22 @@
       `).join("");
 
       const sc = document.getElementById("screens-container");
-      const screenEntries = Object.entries(parsed.screens);
-      sc.innerHTML = screenEntries.length ? "<h3>Screens</h3>" + screenEntries.map(([key, val]) => `
-        <div class="field screen-field">
-          <label>${key}</label>
-          <textarea data-screen="${key}">${escHtml(val)}</textarea>
+      const screenEntries = Object.entries(parsed.screens).sort((a, b) => Number(a[0]) - Number(b[0]));
+      sc.innerHTML = screenEntries.length ? "<h3>Screens</h3>" + screenEntries.map(([num, screen]) => `
+        <div class="variant">
+          <strong>Screen ${num}</strong>
+          ${screen.header !== undefined ? `
+            <label>S${num} Header</label>
+            <input data-screen="${num}" data-sfield="header" value="${escHtml(screen.header || '')}" />
+          ` : ""}
+          ${screen.body !== undefined ? `
+            <label>S${num} Body</label>
+            <textarea data-screen="${num}" data-sfield="body" class="screen-field">${escHtml(screen.body || '')}</textarea>
+          ` : ""}
+          ${screen.disclaimer !== undefined ? `
+            <label>S${num} Disclaimer</label>
+            <input data-screen="${num}" data-sfield="disclaimer" value="${escHtml(screen.disclaimer || '')}" />
+          ` : ""}
         </div>
       `).join("") : "";
 
@@ -242,8 +253,11 @@
         const field = input.dataset.field;
         parsedData.variants[i][field] = input.value;
       });
-      document.querySelectorAll("[data-screen]").forEach(ta => {
-        parsedData.screens[ta.dataset.screen] = ta.value;
+      document.querySelectorAll("[data-sfield]").forEach(el => {
+        const num = el.dataset.screen;
+        const field = el.dataset.sfield;
+        if (!parsedData.screens[num]) parsedData.screens[num] = {};
+        parsedData.screens[num][field] = el.value;
       });
 
       try {

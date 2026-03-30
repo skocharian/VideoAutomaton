@@ -14,10 +14,18 @@ export interface Variant {
   subheadline: string;
 }
 
+/** Each screen can have a header, body, and/or extra fields */
+export interface ScreenText {
+  header?: string;
+  body?: string;
+  disclaimer?: string;
+}
+
 export interface ParsedBrief {
   campaign_id: string;
   variants: Variant[];
-  screens: Record<string, string>;
+  /** Keyed by screen number: "1", "2", ... "11" */
+  screens: Record<string, ScreenText>;
   backgrounds: string[];
   sizes: string[];
   audio: string;

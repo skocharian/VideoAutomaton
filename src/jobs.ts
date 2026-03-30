@@ -6,6 +6,11 @@ import type {
   CreatomateRenderRequest,
 } from "./types";
 
+/**
+ * Build Creatomate modifications object from parsed brief.
+ * Maps to template element names: S{n}_Header, S{n}_Body, S{n}_Disclaimer, Background.
+ * Screen 1 header/body come from the variant; all others from screens map.
+ */
 export function buildModifications(
   parsed: ParsedBrief,
   variantIndex: number,
@@ -20,28 +25,24 @@ export function buildModifications(
     mods["Background.source"] = `${r2PublicUrl}/${background}`;
   }
 
-  // Audio
-  if (parsed.audio) {
-    mods["Audio.source"] = `${r2PublicUrl}/${parsed.audio}`;
-  }
-
-  // Badge
-  if (parsed.badge) {
-    mods["Badge.source"] = `${r2PublicUrl}/${parsed.badge}`;
-  }
-
-  // Screen 1 — variant headline/subheadline
+  // Screen 1 — from variant headline/subheadline
   if (variant) {
-    mods["Screen1Headline.text"] = variant.headline;
-    mods["Screen1Sub.text"] = variant.subheadline;
+    mods["S1_Header.text"] = variant.headline;
+    mods["S1_Body.text"] = variant.subheadline;
   }
 
-  // Remaining screens
-  for (const [key, value] of Object.entries(parsed.screens)) {
-    // key is like "screen2", "screen3", etc.
-    const num = key.replace("screen", "");
-    if (num !== "1") {
-      mods[`Screen${num}.text`] = value;
+  // Remaining screens — dynamic, based on whatever the brief contained
+  for (const [num, screen] of Object.entries(parsed.screens)) {
+    if (num === "1") continue; // S1 handled by variant above
+
+    if (screen.header) {
+      mods[`S${num}_Header.text`] = screen.header;
+    }
+    if (screen.body) {
+      mods[`S${num}_Body.text`] = screen.body;
+    }
+    if (screen.disclaimer) {
+      mods[`S${num}_Disclaimer.text`] = screen.disclaimer;
     }
   }
 
@@ -133,7 +134,6 @@ export async function createRenderJobs(
 
   await Promise.all(renderPromises);
 
-  // Store campaign summary
   const summary: CampaignSummary = {
     campaignId: parsed.campaign_id,
     totalJobs: jobs.length,
@@ -164,7 +164,6 @@ async function submitRender(
   });
 
   if (resp.status === 429) {
-    // Rate limited — wait and retry once
     await new Promise((r) => setTimeout(r, 2000));
     const retryResp = await fetch("https://api.creatomate.com/v2/renders", {
       method: "POST",

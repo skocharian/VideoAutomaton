@@ -1,9 +1,10 @@
-import type { ParsedBrief, ParseBriefRequest, Variant } from "./types";
+import type { ParsedBrief, ParseBriefRequest, Variant, ScreenText } from "./types";
 
 /**
  * Parse a raw marketing brief into structured data.
  * Extracts campaign ID, variants (V1-V4 headlines/subheadlines),
- * and per-screen text blocks.
+ * and per-screen text blocks (each screen can have header + body).
+ * Number of screens is dynamic — determined by what's in the brief.
  */
 export function parseBrief(req: ParseBriefRequest): ParsedBrief {
   const { brief, backgrounds, sizes, audio, badge, novelty } = req;
@@ -25,7 +26,6 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
 }
 
 function extractCampaignId(brief: string): string {
-  // Match patterns like "AX0320", "Campaign ID: AX0320", etc.
   const patterns = [
     /campaign[\s_-]*id\s*[:=]\s*([A-Z0-9]{3,})/i,
     /\b([A-Z]{1,4}\d{3,6})\b/,
@@ -36,17 +36,13 @@ function extractCampaignId(brief: string): string {
     if (match) return match[1];
   }
 
-  // Fallback: generate from timestamp
   return `CAMP${Date.now().toString(36).toUpperCase().slice(-6)}`;
 }
 
 function extractVariants(brief: string): Variant[] {
   const variants: Variant[] = [];
 
-  // Match patterns like:
-  // V1: "Headline text" / "Subheadline text"
-  // V1: Headline text | Subheadline text
-  // V1 - Headline text / Subheadline text
+  // V1: "Headline" / "Subheadline"  or  V1: Headline | Subheadline
   const variantPattern =
     /V(\d+)[:\s\-–]+[""]?([^""\/\|\n]+)[""]?\s*[\/\|]\s*[""]?([^""\n]+?)[""]?\s*$/gim;
 
@@ -59,9 +55,7 @@ function extractVariants(brief: string): Variant[] {
     });
   }
 
-  // If the pattern above didn't match, try a simpler two-line format:
-  // V1: Headline text
-  //     Subheadline text
+  // Fallback: simpler two-line format
   if (variants.length === 0) {
     const simplePattern =
       /V(\d+)[:\s\-–]+(.+?)(?:\n\s+(.+?))?(?=\nV\d|\n\n|$)/gis;
@@ -77,26 +71,72 @@ function extractVariants(brief: string): Variant[] {
   return variants;
 }
 
-function extractScreens(brief: string): Record<string, string> {
-  const screens: Record<string, string> = {};
+/**
+ * Extract screens dynamically from the brief.
+ * Supports formats like:
+ *   Screen 1:
+ *   Header: Some headline
+ *   Body: Some body text
+ *
+ *   Screen 2: Just a single line of text (treated as body)
+ *
+ *   Screen 3:
+ *   Header: ...
+ *   Body: ...
+ *   Disclaimer: ...
+ *
+ * Also supports "S1:", "Screen1:", and numbered formats.
+ * The number of screens is entirely determined by the brief content.
+ */
+function extractScreens(brief: string): Record<string, ScreenText> {
+  const screens: Record<string, ScreenText> = {};
 
-  // Match "Screen X:" or "Screen X -" followed by text until next screen or double newline
+  // Match "Screen N:" blocks, capturing everything until the next "Screen N:" or end
   const screenPattern =
-    /Screen\s*(\d+)[:\s\-–]+\s*([\s\S]*?)(?=Screen\s*\d|$)/gi;
+    /(?:Screen|S)\s*(\d+)[:\s\-–]+\s*([\s\S]*?)(?=(?:Screen|S)\s*\d+[:\s\-–]|$)/gi;
 
   let match;
   while ((match = screenPattern.exec(brief)) !== null) {
-    const screenNum = match[1];
-    const text = match[2]
-      .trim()
-      .replace(/\n{2,}/g, "\n")
-      .trim();
-    if (text) {
-      screens[`screen${screenNum}`] = text;
-    }
+    const num = match[1];
+    const block = match[2].trim();
+
+    if (!block) continue;
+
+    const screen = parseScreenBlock(block);
+    screens[num] = screen;
   }
 
   return screens;
+}
+
+/**
+ * Parse a single screen's text block into header/body/disclaimer.
+ * If the block contains "Header:" / "Body:" labels, use those.
+ * Otherwise, treat the whole block as body text.
+ */
+function parseScreenBlock(block: string): ScreenText {
+  const screen: ScreenText = {};
+
+  const headerMatch = block.match(/header[:\s]+(.+?)(?=\n|$)/i);
+  const bodyMatch = block.match(/body[:\s]+(.+?)(?=\n(?:header|disclaimer)|$)/is);
+  const disclaimerMatch = block.match(/disclaimer[:\s]+(.+?)(?=\n(?:header|body)|$)/is);
+
+  if (headerMatch || bodyMatch) {
+    if (headerMatch) screen.header = headerMatch[1].trim();
+    if (bodyMatch) screen.body = bodyMatch[1].trim();
+    if (disclaimerMatch) screen.disclaimer = disclaimerMatch[1].trim();
+  } else {
+    // No labels — check if there are two lines (first = header, rest = body)
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length >= 2) {
+      screen.header = lines[0];
+      screen.body = lines.slice(1).join("\n");
+    } else {
+      screen.body = block;
+    }
+  }
+
+  return screen;
 }
 
 export function computeVideoCount(parsed: ParsedBrief): number {
