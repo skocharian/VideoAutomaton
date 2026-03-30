@@ -1,4 +1,5 @@
 import { AutoRouter, cors, json, error, type IRequest } from "itty-router";
+import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
 import type { Env, ParseBriefRequest, CreatomateWebhookPayload } from "./types";
 import { parseBrief, computeVideoCount } from "./parser";
 import { createRenderJobs } from "./jobs";
@@ -7,7 +8,7 @@ import { listAssets, getUploadUrl, uploadAsset } from "./assets";
 
 const { preflight, corsify } = cors();
 
-const router = AutoRouter<IRequest, [Env]>({
+const router = AutoRouter<IRequest, [Env, ExecutionContext]>({
   before: [preflight],
   finally: [corsify],
 });
@@ -77,7 +78,6 @@ router.post("/webhook", async (request, env) => {
   const { allDone, campaignId } = await handleWebhook(payload, env);
 
   if (allDone && campaignId) {
-    // Fire notification asynchronously
     await sendNotification(campaignId, env);
   }
 
@@ -150,9 +150,47 @@ router.get("/campaign/:id", async (request, env) => {
   return json(summary);
 });
 
-// ─── Catch-all ───────────────────────────────────────────────────
-router.all("*", () => error(404, "Not found"));
-
+// ─── Export with static asset fallback ───────────────────────────
 export default {
-  fetch: router.fetch,
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> {
+    const url = new URL(request.url);
+
+    // API routes handled by the router
+    const apiPrefixes = [
+      "/parseBrief",
+      "/createJobs",
+      "/webhook",
+      "/assets",
+      "/campaign",
+    ];
+    if (apiPrefixes.some((p) => url.pathname.startsWith(p))) {
+      return router.fetch(request, env, ctx);
+    }
+
+    // Everything else: serve static assets from Workers Sites KV
+    try {
+      return await getAssetFromKV(
+        { request, waitUntil: ctx.waitUntil.bind(ctx) },
+        { ASSET_NAMESPACE: env.__STATIC_CONTENT }
+      );
+    } catch {
+      // If no static asset found, fall back to index.html (SPA)
+      try {
+        const indexReq = new Request(
+          new URL("/index.html", request.url).toString(),
+          request
+        );
+        return await getAssetFromKV(
+          { request: indexReq, waitUntil: ctx.waitUntil.bind(ctx) },
+          { ASSET_NAMESPACE: env.__STATIC_CONTENT }
+        );
+      } catch {
+        return new Response("Not found", { status: 404 });
+      }
+    }
+  },
 } satisfies ExportedHandler<Env>;

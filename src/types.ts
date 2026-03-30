@@ -5,6 +5,7 @@ export interface Env {
   NOTIFY_WEBHOOK_URL: string;
   KV_JOBS: KVNamespace;
   R2_ASSETS: R2Bucket;
+  __STATIC_CONTENT: KVNamespace;
 }
 
 export interface Variant {
