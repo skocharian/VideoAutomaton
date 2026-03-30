@@ -5,8 +5,8 @@ compatibility_date = "2024-12-01"
 # KV namespace for job state
 [[kv_namespaces]]
 binding = "KV_JOBS"
-id = "<YOUR_KV_NAMESPACE_ID>"
-preview_id = "<YOUR_KV_PREVIEW_NAMESPACE_ID>"
+id = "75c1043e16d84d59a04ccddbd84777b5"
+preview_id = "8b8477b4dd074337a70acf8feb5b925d"
 
 # R2 bucket for assets
 [[r2_buckets]]
