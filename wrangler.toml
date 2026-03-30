@@ -15,8 +15,8 @@ bucket_name = "video-automaton-assets"
 
 # Environment variables (set secrets via `wrangler secret put`)
 [vars]
-TEMPLATE_9X16_ID = "<YOUR_CREATOMATE_9X16_TEMPLATE_ID>"
-TEMPLATE_4X5_ID = "<YOUR_CREATOMATE_4X5_TEMPLATE_ID>"
+TEMPLATE_9X16_ID = "ae7226f1-f69c-483b-9cb4-7db0045539bc"
+TEMPLATE_4X5_ID = "ae7226f1-f69c-483b-9cb4-7db0045539bc"
 NOTIFY_WEBHOOK_URL = "<YOUR_SLACK_OR_EMAIL_WEBHOOK_URL>"
 
 # CREATOMATE_API_KEY should be set as a secret:

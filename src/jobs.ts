@@ -154,7 +154,7 @@ async function submitRender(
   renderReq: CreatomateRenderRequest,
   env: Env
 ): Promise<string> {
-  const resp = await fetch("https://api.creatomate.com/v1/renders", {
+  const resp = await fetch("https://api.creatomate.com/v2/renders", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.CREATOMATE_API_KEY}`,
@@ -166,7 +166,7 @@ async function submitRender(
   if (resp.status === 429) {
     // Rate limited — wait and retry once
     await new Promise((r) => setTimeout(r, 2000));
-    const retryResp = await fetch("https://api.creatomate.com/v1/renders", {
+    const retryResp = await fetch("https://api.creatomate.com/v2/renders", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.CREATOMATE_API_KEY}`,
