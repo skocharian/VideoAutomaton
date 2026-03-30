@@ -177,8 +177,8 @@ async function submitRender(
     if (!retryResp.ok) {
       throw new Error(`Creatomate API error: ${retryResp.status}`);
     }
-    const data = (await retryResp.json()) as { id: string }[];
-    return data[0].id;
+    const data = (await retryResp.json()) as { id: string } | { id: string }[];
+    return Array.isArray(data) ? data[0].id : data.id;
   }
 
   if (!resp.ok) {
