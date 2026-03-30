@@ -185,8 +185,8 @@ async function submitRender(
     throw new Error(`Creatomate API error: ${resp.status}`);
   }
 
-  const data = (await resp.json()) as { id: string }[];
-  return data[0].id;
+  const data = (await resp.json()) as { id: string } | { id: string }[];
+  return Array.isArray(data) ? data[0].id : data.id;
 }
 
 export async function storeJob(env: Env, job: RenderJob): Promise<void> {
