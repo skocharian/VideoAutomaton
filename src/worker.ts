@@ -1,5 +1,7 @@
 import { AutoRouter, cors, json, error, type IRequest } from "itty-router";
 import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
+// @ts-expect-error — virtual module injected by wrangler at build time
+import manifestJSON from "__STATIC_CONTENT_MANIFEST";
 import type { Env, ParseBriefRequest, CreatomateWebhookPayload } from "./types";
 import { parseBrief, computeVideoCount } from "./parser";
 import { createRenderJobs } from "./jobs";
@@ -172,10 +174,11 @@ export default {
     }
 
     // Everything else: serve static assets from Workers Sites KV
+    const assetManifest = JSON.parse(manifestJSON);
     try {
       return await getAssetFromKV(
         { request, waitUntil: ctx.waitUntil.bind(ctx) },
-        { ASSET_NAMESPACE: env.__STATIC_CONTENT }
+        { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest }
       );
     } catch {
       // If no static asset found, fall back to index.html (SPA)
@@ -186,7 +189,7 @@ export default {
         );
         return await getAssetFromKV(
           { request: indexReq, waitUntil: ctx.waitUntil.bind(ctx) },
-          { ASSET_NAMESPACE: env.__STATIC_CONTENT }
+          { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest }
         );
       } catch {
         return new Response("Not found", { status: 404 });
