@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoAutomaton — Brief to Video</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #1a1a1a; line-height: 1.5; }
+    .container { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+    h2 { font-size: 1.2rem; margin: 1.5rem 0 0.75rem; }
+    label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+    textarea, input, select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
+    textarea { min-height: 200px; resize: vertical; }
+    .field { margin-bottom: 1rem; }
+    button { padding: 0.6rem 1.2rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; font: inherit; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .card { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+    .summary { background: #eff6ff; border-left: 4px solid #2563eb; padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+    .summary strong { display: block; margin-bottom: 0.25rem; }
+    .variant { padding: 0.5rem; background: #fafafa; border: 1px solid #eee; border-radius: 4px; margin-bottom: 0.5rem; }
+    .variant input { margin-bottom: 0.25rem; }
+    .screen-field textarea { min-height: 60px; }
+    .status { padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+    .status.success { background: #d1fae5; border-left: 4px solid #10b981; }
+    .status.error { background: #fee2e2; border-left: 4px solid #ef4444; }
+    .status.info { background: #dbeafe; border-left: 4px solid #3b82f6; }
+    .hidden { display: none; }
+    .asset-list { list-style: none; max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; padding: 0.25rem; }
+    .asset-list li { padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 2px; }
+    .asset-list li:hover { background: #f0f0f0; }
+    .asset-list li.selected { background: #dbeafe; }
+    .multi-select { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .tag { background: #e0e7ff; padding: 0.2rem 0.5rem; border-radius: 12px; font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem; }
+    .tag button { background: none; color: #666; padding: 0; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>VideoAutomaton</h1>
+
+    <!-- Step 1: Brief Input -->
+    <div id="step-input" class="card">
+      <h2>1. Paste Your Brief</h2>
+      <div class="field">
+        <label for="brief">Marketing Brief</label>
+        <textarea id="brief" placeholder="Paste the full marketing brief here..."></textarea>
+      </div>
+
+      <div class="field">
+        <label>Backgrounds (select from R2)</label>
+        <ul id="bg-list" class="asset-list"><li>Loading...</li></ul>
+        <div id="bg-selected" class="multi-select"></div>
+      </div>
+
+      <div class="field">
+        <label>Audio Track</label>
+        <select id="audio-select"><option value="">Loading...</option></select>
+      </div>
+
+      <div class="field">
+        <label>Badge</label>
+        <select id="badge-select"><option value="">Loading...</option></select>
+      </div>
+
+      <div class="field">
+        <label>Sizes</label>
+        <label style="font-weight:normal"><input type="checkbox" value="9:16" class="size-cb" checked /> 9:16 (Vertical)</label>
+        <label style="font-weight:normal"><input type="checkbox" value="4:5" class="size-cb" checked /> 4:5 (Square-ish)</label>
+      </div>
+
+      <button id="btn-parse" onclick="handleParse()">Parse Brief</button>
+    </div>
+
+    <!-- Step 2: Confirm parsed data -->
+    <div id="step-confirm" class="card hidden">
+      <h2>2. Confirm Parsed Brief</h2>
+
+      <div class="summary" id="summary-box"></div>
+
+      <div class="field">
+        <label>Campaign ID</label>
+        <input id="campaign-id" />
+      </div>
+
+      <div id="variants-container"></div>
+      <div id="screens-container"></div>
+
+      <button id="btn-generate" onclick="handleGenerate()">Generate Videos</button>
+    </div>
+
+    <!-- Step 3: Status -->
+    <div id="step-status" class="card hidden">
+      <h2>3. Render Status</h2>
+      <div id="render-status"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = ""; // Same origin when served via Pages + Worker
+
+    let parsedData = null;
+    let selectedBackgrounds = [];
+
+    // ── Load assets from R2 ──
+    async function loadAssets() {
+      try {
+        const resp = await fetch(`${API_BASE}/assets`);
+        const data = await resp.json();
+        populateAssets(data.assets);
+      } catch {
+        document.getElementById("bg-list").innerHTML = "<li>Could not load assets</li>";
+      }
+    }
+
+    function populateAssets(assets) {
+      const bgList = document.getElementById("bg-list");
+      const audioSel = document.getElementById("audio-select");
+      const badgeSel = document.getElementById("badge-select");
+
+      const bgs = assets.filter(a => /\.(mp4|mov|webm)$/i.test(a.key) && a.key.startsWith("bg/"));
+      const audios = assets.filter(a => /\.(mp3|wav|aac)$/i.test(a.key));
+      const badges = assets.filter(a => /\.(png|jpg|jpeg|svg)$/i.test(a.key) && a.key.startsWith("badges/"));
+
+      bgList.innerHTML = bgs.length
+        ? bgs.map(a => `<li data-key="${a.key}" onclick="toggleBg(this)">${a.key}</li>`).join("")
+        : "<li>No backgrounds found</li>";
+
+      audioSel.innerHTML = '<option value="">None</option>' +
+        audios.map(a => `<option value="${a.key}">${a.key}</option>`).join("");
+
+      badgeSel.innerHTML = '<option value="">None</option>' +
+        badges.map(a => `<option value="${a.key}">${a.key}</option>`).join("");
+    }
+
+    function toggleBg(el) {
+      const key = el.dataset.key;
+      const idx = selectedBackgrounds.indexOf(key);
+      if (idx >= 0) {
+        selectedBackgrounds.splice(idx, 1);
+        el.classList.remove("selected");
+      } else {
+        selectedBackgrounds.push(key);
+        el.classList.add("selected");
+      }
+      renderBgTags();
+    }
+
+    function renderBgTags() {
+      const container = document.getElementById("bg-selected");
+      container.innerHTML = selectedBackgrounds
+        .map(k => `<span class="tag">${k} <button onclick="removeBg('${k}')">&times;</button></span>`)
+        .join("");
+    }
+
+    function removeBg(key) {
+      selectedBackgrounds = selectedBackgrounds.filter(k => k !== key);
+      document.querySelectorAll("#bg-list li").forEach(li => {
+        if (li.dataset.key === key) li.classList.remove("selected");
+      });
+      renderBgTags();
+    }
+
+    // ── Parse Brief ──
+    async function handleParse() {
+      const btn = document.getElementById("btn-parse");
+      btn.disabled = true;
+      btn.textContent = "Parsing...";
+
+      const brief = document.getElementById("brief").value;
+      const sizes = [...document.querySelectorAll(".size-cb:checked")].map(cb => cb.value);
+      const audio = document.getElementById("audio-select").value;
+      const badge = document.getElementById("badge-select").value;
+
+      try {
+        const resp = await fetch(`${API_BASE}/parseBrief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brief, backgrounds: selectedBackgrounds, sizes, audio, badge }),
+        });
+
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        parsedData = data.parsed;
+        showConfirmation(data);
+      } catch (err) {
+        alert("Parse error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Parse Brief";
+      }
+    }
+
+    function showConfirmation(data) {
+      document.getElementById("step-confirm").classList.remove("hidden");
+
+      const { parsed, summary } = data;
+
+      document.getElementById("summary-box").innerHTML = `
+        <strong>Summary</strong>
+        Campaign: ${summary.campaignId}<br>
+        Variants: ${summary.variantCount} | Backgrounds: ${summary.backgroundCount} | Sizes: ${summary.sizeCount}<br>
+        <strong>Total videos to generate: ${summary.totalVideos}</strong>
+      `;
+
+      document.getElementById("campaign-id").value = parsed.campaign_id;
+
+      const vc = document.getElementById("variants-container");
+      vc.innerHTML = "<h3>Variants</h3>" + parsed.variants.map((v, i) => `
+        <div class="variant">
+          <label>${v.id} Headline</label>
+          <input data-vi="${i}" data-field="headline" value="${escHtml(v.headline)}" />
+          <label>${v.id} Subheadline</label>
+          <input data-vi="${i}" data-field="subheadline" value="${escHtml(v.subheadline)}" />
+        </div>
+      `).join("");
+
+      const sc = document.getElementById("screens-container");
+      const screenEntries = Object.entries(parsed.screens);
+      sc.innerHTML = screenEntries.length ? "<h3>Screens</h3>" + screenEntries.map(([key, val]) => `
+        <div class="field screen-field">
+          <label>${key}</label>
+          <textarea data-screen="${key}">${escHtml(val)}</textarea>
+        </div>
+      `).join("") : "";
+
+      document.getElementById("step-confirm").scrollIntoView({ behavior: "smooth" });
+    }
+
+    // ── Generate Videos ──
+    async function handleGenerate() {
+      const btn = document.getElementById("btn-generate");
+      btn.disabled = true;
+      btn.textContent = "Submitting...";
+
+      // Apply edits from confirmation form
+      parsedData.campaign_id = document.getElementById("campaign-id").value;
+      document.querySelectorAll("[data-vi]").forEach(input => {
+        const i = parseInt(input.dataset.vi);
+        const field = input.dataset.field;
+        parsedData.variants[i][field] = input.value;
+      });
+      document.querySelectorAll("[data-screen]").forEach(ta => {
+        parsedData.screens[ta.dataset.screen] = ta.value;
+      });
+
+      try {
+        const resp = await fetch(`${API_BASE}/createJobs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parsed: parsedData }),
+        });
+
+        if (!resp.ok) throw new Error(await resp.text());
+        const result = await resp.json();
+        showStatus(result);
+      } catch (err) {
+        alert("Job creation error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Generate Videos";
+      }
+    }
+
+    function showStatus(result) {
+      document.getElementById("step-status").classList.remove("hidden");
+
+      const cls = result.failed > 0 ? "error" : "success";
+      document.getElementById("render-status").innerHTML = `
+        <div class="status ${cls}">
+          <strong>Campaign: ${result.campaignId}</strong><br>
+          Jobs submitted: ${result.totalJobs}<br>
+          Rendering: ${result.rendering}<br>
+          Failed: ${result.failed}<br>
+          ${result.errors.length ? "<br>Errors:<br>" + result.errors.map(e => `- ${e}`).join("<br>") : ""}
+          <br><br>You will be notified when all renders are complete.
+        </div>
+      `;
+
+      document.getElementById("step-status").scrollIntoView({ behavior: "smooth" });
+    }
+
+    function escHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // Init
+    loadAssets();
+  </script>
+</body>
+</html>

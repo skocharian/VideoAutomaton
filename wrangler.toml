@@ -1,0 +1,28 @@
+name = "video-automaton"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
+
+# KV namespace for job state
+[[kv_namespaces]]
+binding = "KV_JOBS"
+id = "<YOUR_KV_NAMESPACE_ID>"
+preview_id = "<YOUR_KV_PREVIEW_NAMESPACE_ID>"
+
+# R2 bucket for assets
+[[r2_buckets]]
+binding = "R2_ASSETS"
+bucket_name = "video-automaton-assets"
+
+# Environment variables (set secrets via `wrangler secret put`)
+[vars]
+TEMPLATE_9X16_ID = "<YOUR_CREATOMATE_9X16_TEMPLATE_ID>"
+TEMPLATE_4X5_ID = "<YOUR_CREATOMATE_4X5_TEMPLATE_ID>"
+NOTIFY_WEBHOOK_URL = "<YOUR_SLACK_OR_EMAIL_WEBHOOK_URL>"
+
+# CREATOMATE_API_KEY should be set as a secret:
+#   wrangler secret put CREATOMATE_API_KEY
+
+# Serve frontend as static assets
+# Deploy frontend/ to Cloudflare Pages, or use the assets directory:
+[site]
+bucket = "./frontend"
