@@ -66,6 +66,11 @@
       </div>
 
       <div class="field">
+        <label>End Card Logo</label>
+        <select id="logo-select"><option value="">Loading...</option></select>
+      </div>
+
+      <div class="field">
         <label>Sizes</label>
         <label style="font-weight:normal"><input type="checkbox" value="9:16" class="size-cb" checked /> 9:16 (Vertical)</label>
         <label style="font-weight:normal"><input type="checkbox" value="4:5" class="size-cb" checked /> 4:5 (Square-ish)</label>
@@ -119,10 +124,15 @@
       const bgList = document.getElementById("bg-list");
       const audioSel = document.getElementById("audio-select");
       const badgeSel = document.getElementById("badge-select");
+      const logoSel = document.getElementById("logo-select");
 
       const bgs = assets.filter(a => /\.(mp4|mov|webm)$/i.test(a.key) && a.key.startsWith("bg/"));
       const audios = assets.filter(a => /\.(mp3|wav|aac)$/i.test(a.key));
       const badges = assets.filter(a => /\.(png|jpg|jpeg|svg)$/i.test(a.key) && a.key.startsWith("badges/"));
+      const logos = assets.filter(a =>
+        /\.(png|jpg|jpeg|svg)$/i.test(a.key) &&
+        (a.key.startsWith("logos/") || /logo/i.test(a.key))
+      );
 
       bgList.innerHTML = bgs.length
         ? bgs.map(a => `<li data-key="${a.key}" onclick="toggleBg(this)">${a.key}</li>`).join("")
@@ -133,6 +143,9 @@
 
       badgeSel.innerHTML = '<option value="">None</option>' +
         badges.map(a => `<option value="${a.key}">${a.key}</option>`).join("");
+
+      logoSel.innerHTML = '<option value="">None</option>' +
+        logos.map(a => `<option value="${a.key}">${a.key}</option>`).join("");
     }
 
     function toggleBg(el) {
@@ -173,12 +186,13 @@
       const sizes = [...document.querySelectorAll(".size-cb:checked")].map(cb => cb.value);
       const audio = document.getElementById("audio-select").value;
       const badge = document.getElementById("badge-select").value;
+      const logo = document.getElementById("logo-select").value;
 
       try {
         const resp = await fetch(`${API_BASE}/parseBrief`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brief, backgrounds: selectedBackgrounds, sizes, audio, badge }),
+          body: JSON.stringify({ brief, backgrounds: selectedBackgrounds, sizes, audio, badge, logo }),
         });
 
         if (!resp.ok) throw new Error(await resp.text());

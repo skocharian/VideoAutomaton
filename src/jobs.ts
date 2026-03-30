@@ -8,7 +8,7 @@ import type {
 
 /**
  * Build Creatomate modifications object from parsed brief.
- * Maps to template element names: S{n}_Header, S{n}_Body, S{n}_Disclaimer, Background.
+ * Maps to template element names: S{n}_Header, S{n}_Body, S{n}_Disclaimer, Background, S11_Logo.
  * Screen 1 header/body come from the variant; all others from screens map.
  */
 export function buildModifications(
@@ -23,6 +23,10 @@ export function buildModifications(
   // Background
   if (background) {
     mods["Background.source"] = `${r2PublicUrl}/${background}`;
+  }
+
+  if (parsed.logo) {
+    mods["S11_Logo.source"] = `${r2PublicUrl}/${parsed.logo}`;
   }
 
   // Screen 1 — from variant headline/subheadline

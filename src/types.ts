@@ -30,6 +30,7 @@ export interface ParsedBrief {
   sizes: string[];
   audio: string;
   badge: string;
+  logo: string;
   novelty?: string[];
 }
 
@@ -39,6 +40,7 @@ export interface ParseBriefRequest {
   sizes: string[];
   audio: string;
   badge: string;
+  logo: string;
   novelty?: string[];
 }
 

@@ -23,6 +23,7 @@ const parsed: ParsedBrief = {
   sizes: ["9:16", "4:5"],
   audio: "audio/track.mp3",
   badge: "badges/ios.png",
+  logo: "logos/breethe.png",
   novelty: ["novelty/clip1.mp4"],
 };
 
@@ -66,6 +67,11 @@ describe("buildModifications", () => {
   it("includes novelty clip source", () => {
     const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
     expect(mods["NoveltyClip.source"]).toBe(`${r2Url}/novelty/clip1.mp4`);
+  });
+
+  it("includes end card logo source", () => {
+    const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
+    expect(mods["S11_Logo.source"]).toBe(`${r2Url}/logos/breethe.png`);
   });
 
   it("handles empty background gracefully", () => {

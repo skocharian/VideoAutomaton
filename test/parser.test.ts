@@ -8,6 +8,7 @@ describe("parseBrief", () => {
     sizes: ["9:16", "4:5"],
     audio: "audio/breethe.mp3",
     badge: "badges/ios.png",
+    logo: "logos/breethe.png",
   };
 
   it("extracts campaign ID from brief text", () => {
@@ -196,6 +197,44 @@ for medical treatment.
     });
   });
 
+  it("strips editorial line notes like first/second from screen copy", () => {
+    const brief = `
+Screen 3:
+Stress actually changes how you breathe. (first sentence)
+It switches you to shallow breathing — the biological signal for danger. (second)
+
+Screen 8:
+Stop the anxious, stress spiral.
+Get fast-acting breathing exercises for instant nervous system relief.
+*This is not a replacement (in very small print at bottom)
+for medical treatment.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["3"]).toEqual({
+      header: "Stress actually changes how you breathe.",
+      body: "It switches you to shallow breathing — the biological signal for danger.",
+    });
+    expect(result.screens["8"]).toEqual({
+      header: "Stop the anxious, stress spiral.",
+      body: "Get fast-acting breathing exercises for instant nervous system relief.",
+      disclaimer: "*This is not a replacement\nfor medical treatment.",
+    });
+  });
+
+  it("strips the shorter in-very-small-print annotation too", () => {
+    const brief = `
+Screen 8:
+*This is not a replacement (in very small print)
+for medical treatment.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["8"]).toEqual({
+      disclaimer: "*This is not a replacement\nfor medical treatment.",
+    });
+  });
+
   it("skips screen 1 blocks that only contain variants", () => {
     const brief = `
 Screen 1:
@@ -349,14 +388,17 @@ Feel better. Sleep better.
       header: "Regardless of what came first, your body is now locked in a stress cycle.",
       body: "Anxiety has become a daily habit.",
     });
+    expect(result.screens["3"]).toEqual({
+      header: "Stress actually changes how you breathe.",
+      body: "It switches you to shallow breathing — the biological signal for danger.",
+    });
     expect(result.screens["8"]).toEqual({
       header: "Stop the anxious, stress spiral.",
       body: "Get fast-acting breathing exercises for\ninstant nervous system relief.",
       disclaimer: "*This is not a replacement\nfor medical treatment.",
     });
     expect(result.screens["11"]).toEqual({
-      header: "End Card (motion tagline)",
-      body: "<<Breethe logo>>\nFeel better. Sleep better.",
+      body: "Feel better. Sleep better.",
     });
   });
 
@@ -379,11 +421,12 @@ Screen 6: Final
     expect(result.sizes).toEqual(["9:16", "4:5"]);
   });
 
-  it("passes through backgrounds, audio, badge", () => {
+  it("passes through backgrounds, audio, badge, and logo", () => {
     const result = parseBrief({ ...baseBriefReq, brief: "AX0320" });
     expect(result.backgrounds).toEqual(["bg/PinkTrees.mp4"]);
     expect(result.audio).toBe("audio/breethe.mp3");
     expect(result.badge).toBe("badges/ios.png");
+    expect(result.logo).toBe("logos/breethe.png");
   });
 
   it("includes novelty when provided", () => {
@@ -414,6 +457,7 @@ describe("computeVideoCount", () => {
       sizes: ["9:16", "4:5"],
       audio: "",
       badge: "",
+      logo: "",
     });
     expect(count).toBe(12);
   });
@@ -427,6 +471,7 @@ describe("computeVideoCount", () => {
       sizes: ["9:16"],
       audio: "",
       badge: "",
+      logo: "",
     });
     expect(count).toBe(1);
   });

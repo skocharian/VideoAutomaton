@@ -299,14 +299,26 @@
       "fill_color": "#ffffff"
     },
     {
+      "id": "12b52a95-557c-47d4-aa8f-369ca597dd0a",
+      "name": "S11_Logo",
+      "type": "image",
+      "track": 6,
+      "time": 30,
+      "duration": 3,
+      "y": "40%",
+      "width": "34%",
+      "height": "12%",
+      "source": ""
+    },
+    {
       "id": "77cd5ef5-4d9d-417a-b261-d3bb11425359",
       "name": "S11_Body",
       "type": "text",
-      "track": 5,
+      "track": 6,
       "time": 30,
       "duration": 3,
-      "y": "58%",
-      "width": "70%",
+      "y": "62%",
+      "width": "62%",
       "text": "",
       "font_size": 26,
       "fill_color": "#ffffff"

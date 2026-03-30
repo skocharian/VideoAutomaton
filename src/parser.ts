@@ -7,7 +7,7 @@ import type { ParsedBrief, ParseBriefRequest, Variant, ScreenText } from "./type
  * Number of screens is dynamic — determined by what's in the brief.
  */
 export function parseBrief(req: ParseBriefRequest): ParsedBrief {
-  const { brief, backgrounds, sizes, audio, badge, novelty } = req;
+  const { brief, backgrounds, sizes, audio, badge, logo, novelty } = req;
 
   const campaignId = extractCampaignId(brief);
   const variants = extractVariants(brief);
@@ -21,6 +21,7 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
     sizes: sizes.length > 0 ? sizes : ["9:16", "4:5"],
     audio,
     badge,
+    logo,
     ...(novelty && novelty.length > 0 ? { novelty } : {}),
   };
 }
@@ -127,7 +128,8 @@ function parseScreenBlock(block: string): ScreenText {
   const screen: ScreenText = {};
   const lines = block
     .split("\n")
-    .map((line) => line.trim())
+    .map((line) => stripScreenLineNotes(line.trim()))
+    .filter((line) => !isNonCopyScreenLine(line))
     .filter(Boolean);
 
   // Parse explicit labels only when they appear at the start of a line.
@@ -173,6 +175,20 @@ function parseScreenBlock(block: string): ScreenText {
   }
 
   return screen;
+}
+
+function stripScreenLineNotes(line: string): string {
+  return line
+    .replace(
+      /\s*\((?:(?:first|second)(?:\s+sentence)?|in very small print(?:\s+at bottom)?)\)\s*/gi,
+      " "
+    )
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function isNonCopyScreenLine(line: string): boolean {
+  return /^<<.*>>$/.test(line) || /^end\s*card(?:\s*\(.*\))?$/i.test(line);
 }
 
 export function computeVideoCount(parsed: ParsedBrief): number {
