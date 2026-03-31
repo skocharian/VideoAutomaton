@@ -8,14 +8,10 @@ import type {
 } from "./types";
 import { computeTotalDuration } from "./parser";
 import {
-  encodeRichTextPayload,
-  hasRichTextMarkup,
   stripRichTextMarkup,
 } from "./rich-text";
 import {
   getTemplateElementLayout,
-  TEMPLATE_9X16_HEIGHT,
-  TEMPLATE_9X16_WIDTH,
 } from "./template-layout";
 
 /**
@@ -30,7 +26,8 @@ export function buildModifications(
   variantIndex: number,
   background: string,
   r2PublicUrl: string,
-  workerDomain = ""
+  workerDomain = "",
+  size = "9:16"
 ): Record<string, ModificationValue> {
   const variant = parsed.variants[variantIndex];
   const mods: Record<string, ModificationValue> = {};
@@ -61,7 +58,8 @@ export function buildModifications(
       "S1_Header",
       variant.headline,
       timeline["1"],
-      workerDomain
+      workerDomain,
+      size
     );
     applyTextLayerModifications(
       mods,
@@ -69,7 +67,8 @@ export function buildModifications(
       "S1_Body",
       variant.subheadline,
       timeline["1"],
-      workerDomain
+      workerDomain,
+      size
     );
   }
 
@@ -89,7 +88,8 @@ export function buildModifications(
         `S${num}_Header`,
         headerText,
         timing,
-        workerDomain
+        workerDomain,
+        size
       );
     }
     if (screen.body) {
@@ -100,7 +100,8 @@ export function buildModifications(
         `S${num}_Body`,
         screen.body,
         timing,
-        workerDomain
+        workerDomain,
+        size
       );
     }
     if (screen.disclaimer) {
@@ -111,7 +112,8 @@ export function buildModifications(
         `S${num}_Disclaimer`,
         screen.disclaimer,
         timing,
-        workerDomain
+        workerDomain,
+        size
       );
     }
 
@@ -119,7 +121,8 @@ export function buildModifications(
       const accoladeElement = createDynamicImageElement(
         "S9_Accolade",
         `${r2PublicUrl}/${parsed.accolade}`,
-        timing
+        timing,
+        size
       );
       if (accoladeElement) {
         addedElements.push(accoladeElement);
@@ -135,7 +138,8 @@ export function buildModifications(
           "S11_Header",
           "Breethe",
           timing,
-          workerDomain
+          workerDomain,
+          size
         );
       }
 
@@ -143,7 +147,8 @@ export function buildModifications(
         const logoElement = createDynamicImageElement(
           "S11_Logo",
           `${r2PublicUrl}/${parsed.logo}`,
-          timing
+          timing,
+          size
         );
         if (logoElement) {
           addedElements.push(logoElement);
@@ -154,7 +159,8 @@ export function buildModifications(
         const badgeElement = createDynamicImageElement(
           "S11_Badge",
           `${r2PublicUrl}/${parsed.badge}`,
-          timing
+          timing,
+          size
         );
         if (badgeElement) {
           addedElements.push(badgeElement);
@@ -230,7 +236,8 @@ export async function createRenderJobs(
           variantIdx,
           bg,
           r2PublicUrl,
-          workerDomain
+          workerDomain,
+          size
         );
         const templateId = getTemplateId(size, env);
         const metadata = JSON.stringify({
@@ -341,8 +348,13 @@ function applyTextLayerModifications(
   elementName: string,
   text: string,
   timing: ScreenTiming,
-  workerDomain: string
+  workerDomain: string,
+  size: string
 ): void {
+  void addedElements;
+  void timing;
+  void workerDomain;
+  void size;
   const strippedText = stripRichTextMarkup(text).trim();
 
   if (!strippedText) {
@@ -350,93 +362,16 @@ function applyTextLayerModifications(
     return;
   }
 
-  if (workerDomain && hasRichTextMarkup(text)) {
-    mods[`${elementName}.text`] = "";
-    const richElement = createRichTextElement(
-      elementName,
-      text,
-      timing,
-      workerDomain
-    );
-    if (richElement) {
-      addedElements.push(richElement);
-      return;
-    }
-  }
-
   mods[`${elementName}.text`] = strippedText;
-}
-
-function createRichTextElement(
-  elementName: string,
-  text: string,
-  timing: ScreenTiming,
-  workerDomain: string
-): ModificationValue | null {
-  const layout = getTemplateElementLayout(elementName);
-  if (!layout) return null;
-
-  const width = toPixels(layout.width, TEMPLATE_9X16_WIDTH);
-  const height = toPixels(layout.height, TEMPLATE_9X16_HEIGHT);
-  const payload = {
-    text,
-    width,
-    height,
-    align:
-      String(layout.x_alignment ?? "0%").includes("50")
-        ? "center"
-        : "left",
-    fontFamily: String(layout.font_family ?? "Aileron, Arial, sans-serif"),
-    fontSize: Number(layout.font_size ?? 28),
-    fontWeight: String(layout.font_weight ?? 600),
-    lineHeight:
-      typeof layout.line_height === "string" || typeof layout.line_height === "number"
-        ? layout.line_height
-        : "100%",
-    color: String(layout.fill_color ?? "#ffffff"),
-    shadowColor:
-      typeof layout.shadow_color === "string" ? layout.shadow_color : undefined,
-    shadowBlur:
-      typeof layout.shadow_blur === "string" || typeof layout.shadow_blur === "number"
-        ? layout.shadow_blur
-        : undefined,
-    shadowY:
-      typeof layout.shadow_y === "string" || typeof layout.shadow_y === "number"
-        ? layout.shadow_y
-        : undefined,
-  } as const;
-
-  const source = `${workerDomain}/rich-text.svg?payload=${encodeRichTextPayload(payload)}`;
-
-  return {
-    name: `${elementName}_Rich_Dynamic`,
-    type: "image",
-    track: Number(layout.track ?? 10) + 20,
-    time: timing.time,
-    duration: timing.duration,
-    x: pickLayoutValue(layout.x, "50%"),
-    y: pickLayoutValue(layout.y, "50%"),
-    ...(pickOptionalLayoutValue(layout.x_anchor) !== undefined
-      ? { x_anchor: pickOptionalLayoutValue(layout.x_anchor) }
-      : {}),
-    ...(pickOptionalLayoutValue(layout.y_anchor) !== undefined
-      ? { y_anchor: pickOptionalLayoutValue(layout.y_anchor) }
-      : {}),
-    width: pickLayoutValue(layout.width, "70%"),
-    height: pickLayoutValue(layout.height, "20%"),
-    x_alignment: pickLayoutValue(layout.x_alignment, "0%"),
-    y_alignment: pickLayoutValue(layout.y_alignment, "0%"),
-    fit: "contain",
-    source,
-  };
 }
 
 function createDynamicImageElement(
   elementName: string,
   source: string,
-  timing: ScreenTiming
+  timing: ScreenTiming,
+  size: string
 ): ModificationValue | null {
-  const layout = getTemplateElementLayout(elementName);
+  const layout = getTemplateElementLayout(elementName, size);
   if (!layout) return null;
 
   return {

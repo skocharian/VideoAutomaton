@@ -181,6 +181,40 @@ listen to this audio.
     });
   });
 
+  it("recognizes bolded variant and screen headings from rich-text paste", () => {
+    const brief = `
+**V1:**
+You’re probably breathing wrong right now.
+(And it’s keeping you stressed & anxious.)
+
+**V2:**
+Your brain is stuck in **anxiety**.
+(Because you’re probably **breathing** wrong right now.)
+
+**Screen 2:**
+The science is clear: Your breathing triggers how your **nervous system** reacts.
+
+**Screen 3:**
+**Stress** actually changes how you breathe. (first sentence)
+It switches you to **shallow breathing** — the biological signal for danger. (second)
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.variants).toHaveLength(2);
+    expect(result.variants[1]).toEqual({
+      id: "V2",
+      headline: "Your brain is stuck in **anxiety**.",
+      subheadline: "(Because you’re probably **breathing** wrong right now.)",
+    });
+    expect(result.screens["2"]).toEqual({
+      body: "The science is clear: Your breathing triggers how your **nervous system** reacts.",
+    });
+    expect(result.screens["3"]).toEqual({
+      header: "**Stress** actually changes how you breathe.",
+      body: "It switches you to **shallow breathing** — the biological signal for danger.",
+    });
+  });
+
   it("treats two-line screen blocks as header + body", () => {
     const brief = `
 Screen 4:

@@ -63,7 +63,8 @@
 
     textarea,
     input,
-    select {
+    select,
+    .rich-editor {
       width: 100%;
       padding: 0.7rem 0.8rem;
       border: 1px solid #cfddeb;
@@ -76,6 +77,23 @@
     textarea {
       min-height: 180px;
       resize: vertical;
+    }
+
+    .rich-editor {
+      min-height: 220px;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+      outline: none;
+    }
+
+    .rich-editor:empty::before {
+      content: attr(data-placeholder);
+      color: #8aa0b6;
+    }
+
+    .rich-editor strong,
+    .rich-editor b {
+      font-weight: 800;
     }
 
     input[type="checkbox"] {
@@ -472,8 +490,15 @@
       <h2>1. Paste Your Brief</h2>
       <div class="field">
         <label for="brief">Marketing Brief</label>
-        <textarea id="brief" placeholder="Paste the full marketing brief here..."></textarea>
-        <div class="helper">Use `**bold**` or `&lt;b&gt;bold&lt;/b&gt;` in copy if you want to preview emphasis before generating.</div>
+        <div
+          id="brief"
+          class="rich-editor"
+          contenteditable="true"
+          spellcheck="true"
+          data-placeholder="Paste the full marketing brief here..."
+          aria-label="Marketing Brief"
+        ></div>
+        <div class="helper">Paste directly from Google Docs to keep bold, or type `**bold**` manually if you prefer.</div>
       </div>
 
       <div class="upload-card">
@@ -582,6 +607,9 @@
       background: "",
       size: "9:16",
     };
+    let previewMediaCache = {};
+    let previewMediaPromises = {};
+    let previewRenderToken = 0;
 
     async function loadAssets() {
       try {
@@ -791,12 +819,157 @@
       }
     }
 
+    function getBriefMarkup() {
+      const editor = document.getElementById("brief");
+      if (!editor) return "";
+
+      return normalizeRichTextMarkup(editorNodeToMarkup(editor));
+    }
+
+    function editorNodeToMarkup(node, isBold = false) {
+      if (!node) return "";
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || "";
+        if (!text) return "";
+        return isBold ? `**${text}**` : text;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return "";
+      }
+
+      const tagName = node.tagName.toLowerCase();
+      if (tagName === "br") {
+        return "\n";
+      }
+
+      const nextBold = isBold || isBoldElement(node);
+      const childMarkup = Array.from(node.childNodes)
+        .map((child) => editorNodeToMarkup(child, nextBold))
+        .join("");
+
+      if (isBlockElement(tagName)) {
+        return `${childMarkup}\n`;
+      }
+
+      return childMarkup;
+    }
+
+    function normalizeRichTextMarkup(markup) {
+      return String(markup || "")
+        .replace(/\u00a0/g, " ")
+        .replace(/\r/g, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    function isBoldElement(element) {
+      const tagName = element.tagName.toLowerCase();
+      if (tagName === "strong" || tagName === "b") {
+        return true;
+      }
+
+      const fontWeight = (element.style && element.style.fontWeight) || "";
+      if (fontWeight === "bold") {
+        return true;
+      }
+
+      const numericWeight = Number.parseInt(fontWeight, 10);
+      return Number.isFinite(numericWeight) && numericWeight >= 600;
+    }
+
+    function isBlockElement(tagName) {
+      return [
+        "div",
+        "p",
+        "li",
+        "ul",
+        "ol",
+        "section",
+        "article",
+        "header",
+        "footer",
+        "blockquote",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+      ].includes(tagName);
+    }
+
+    function sanitizePastedHtml(html, plainText = "") {
+      if (!html) {
+        return escapeHtml(plainText).replace(/\n/g, "<br>");
+      }
+
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const body = doc.body;
+
+      const sanitized = Array.from(body.childNodes)
+        .map((node) => sanitizeHtmlNode(node, false))
+        .join("")
+        .replace(/(?:<br>\s*){3,}/g, "<br><br>")
+        .trim();
+
+      return sanitized || escapeHtml(plainText).replace(/\n/g, "<br>");
+    }
+
+    function sanitizeHtmlNode(node, isBold) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return escapeHtml(node.textContent || "");
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return "";
+      }
+
+      const tagName = node.tagName.toLowerCase();
+      if (tagName === "br") {
+        return "<br>";
+      }
+
+      const nextBold = isBold || isBoldElement(node);
+      const content = Array.from(node.childNodes)
+        .map((child) => sanitizeHtmlNode(child, nextBold))
+        .join("");
+
+      const wrapped = nextBold && content ? `<strong>${content}</strong>` : content;
+
+      if (isBlockElement(tagName)) {
+        return `${wrapped}<br>`;
+      }
+
+      return wrapped;
+    }
+
+    function insertHtmlAtCursor(html) {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        document.execCommand("insertHTML", false, html);
+        return;
+      }
+
+      document.execCommand("insertHTML", false, html);
+    }
+
+    function handleBriefPaste(event) {
+      event.preventDefault();
+      const clipboard = event.clipboardData;
+      const html = clipboard?.getData("text/html") || "";
+      const text = clipboard?.getData("text/plain") || "";
+      insertHtmlAtCursor(sanitizePastedHtml(html, text));
+    }
+
     async function handleParse() {
       const btn = document.getElementById("btn-parse");
       btn.disabled = true;
       btn.textContent = "Parsing...";
 
-      const brief = document.getElementById("brief").value;
+      const brief = getBriefMarkup();
       const sizes = [...document.querySelectorAll(".size-cb:checked")].map((cb) => cb.value);
       const audio = document.getElementById("audio-select").value;
       const accolade = document.getElementById("accolade-select").value;
@@ -967,7 +1140,7 @@
       renderPreview();
     }
 
-    function renderPreview() {
+    async function renderPreview() {
       const previewGrid = document.getElementById("preview-grid");
       if (!parsedData || !previewGrid) return;
 
@@ -979,10 +1152,19 @@
       }
 
       const backgroundKey = previewState.background;
-      const backgroundUrl = backgroundKey ? assetUrl(backgroundKey) : "";
+      const renderToken = ++previewRenderToken;
 
       previewGrid.innerHTML = slides
-        .map((slide) => renderPreviewCard(slide, backgroundUrl))
+        .map((slide) => renderPreviewCard(slide, null))
+        .join("");
+
+      const backgroundMedia = await getPreviewBackgroundMedia(backgroundKey);
+      if (renderToken !== previewRenderToken) {
+        return;
+      }
+
+      previewGrid.innerHTML = slides
+        .map((slide) => renderPreviewCard(slide, backgroundMedia))
         .join("");
     }
 
@@ -1023,10 +1205,9 @@
       return slides;
     }
 
-    function renderPreviewCard(slide, backgroundUrl) {
+    function renderPreviewCard(slide, backgroundMedia) {
       const screenNumber = Number(slide.screenNumber);
       const size = previewState.size || "9:16";
-      const showBackgroundVideo = backgroundUrl && /\.(mp4|mov|webm)$/i.test(backgroundUrl);
       const accoladeUrl = document.getElementById("accolade-select").value
         ? assetUrl(document.getElementById("accolade-select").value)
         : "";
@@ -1070,10 +1251,8 @@
       return `
         <div class="preview-card" data-size="${escapeHtml(size)}">
           <div class="preview-media">
-            ${backgroundUrl
-              ? showBackgroundVideo
-                ? `<video src="${backgroundUrl}" autoplay muted loop playsinline preload="metadata"></video>`
-                : `<img src="${backgroundUrl}" alt="Background" />`
+            ${backgroundMedia?.src
+              ? `<img src="${backgroundMedia.src}" alt="Background preview" loading="lazy" />`
               : ""}
           </div>
           <div class="preview-overlay">
@@ -1214,6 +1393,127 @@
       return `${API_BASE}/assets/public/${encoded}`;
     }
 
+    async function getPreviewBackgroundMedia(backgroundKey) {
+      if (!backgroundKey) return null;
+
+      if (previewMediaCache[backgroundKey]) {
+        return previewMediaCache[backgroundKey];
+      }
+
+      if (!previewMediaPromises[backgroundKey]) {
+        previewMediaPromises[backgroundKey] = buildPreviewBackgroundMedia(backgroundKey)
+          .then((media) => {
+            previewMediaCache[backgroundKey] = media;
+            delete previewMediaPromises[backgroundKey];
+            return media;
+          })
+          .catch(() => {
+            delete previewMediaPromises[backgroundKey];
+            return null;
+          });
+      }
+
+      return previewMediaPromises[backgroundKey];
+    }
+
+    async function buildPreviewBackgroundMedia(backgroundKey) {
+      const url = assetUrl(backgroundKey);
+      if (!isVideoAsset(backgroundKey)) {
+        return { type: "image", src: url };
+      }
+
+      const thumbnail = await createVideoThumbnail(url);
+      return thumbnail ? { type: "image", src: thumbnail } : null;
+    }
+
+    function isVideoAsset(key) {
+      return /\.(mp4|mov|webm)$/i.test(key || "");
+    }
+
+    function createVideoThumbnail(url) {
+      return new Promise((resolve) => {
+        const video = document.createElement("video");
+        let hasCaptured = false;
+        let seekRequested = false;
+
+        const cleanup = () => {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        };
+
+        const finish = (result) => {
+          if (hasCaptured) return;
+          hasCaptured = true;
+          cleanup();
+          resolve(result);
+        };
+
+        const captureFrame = () => {
+          if (!video.videoWidth || !video.videoHeight) {
+            finish(null);
+            return;
+          }
+
+          const canvas = document.createElement("canvas");
+          const targetWidth = 360;
+          const targetHeight = Math.max(
+            1,
+            Math.round((targetWidth * video.videoHeight) / video.videoWidth)
+          );
+
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+
+          const context = canvas.getContext("2d");
+          if (!context) {
+            finish(null);
+            return;
+          }
+
+          context.drawImage(video, 0, 0, targetWidth, targetHeight);
+          finish(canvas.toDataURL("image/jpeg", 0.82));
+        };
+
+        video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
+        video.crossOrigin = "anonymous";
+
+        video.addEventListener("error", () => finish(null), { once: true });
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            const duration = Number.isFinite(video.duration) ? video.duration : 0;
+            const targetTime = duration > 1 ? Math.min(1, duration * 0.15) : 0;
+
+            if (targetTime > 0) {
+              seekRequested = true;
+              try {
+                video.currentTime = targetTime;
+              } catch {
+                seekRequested = false;
+                captureFrame();
+              }
+            }
+          },
+          { once: true }
+        );
+        video.addEventListener(
+          "loadeddata",
+          () => {
+            if (!seekRequested) {
+              captureFrame();
+            }
+          },
+          { once: true }
+        );
+        video.addEventListener("seeked", captureFrame, { once: true });
+
+        video.src = url;
+      });
+    }
+
     function sanitizeAssetFilename(name) {
       const dotIndex = name.lastIndexOf(".");
       const basename = dotIndex >= 0 ? name.slice(0, dotIndex) : name;
@@ -1271,6 +1571,8 @@
         renderPreview();
       }
     });
+
+    document.getElementById("brief").addEventListener("paste", handleBriefPaste);
 
     loadAssets();
   </script>

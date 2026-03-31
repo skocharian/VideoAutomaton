@@ -126,7 +126,7 @@ describe("buildModifications", () => {
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
   });
 
-  it("injects a rich-text overlay when the worker domain is available", () => {
+  it("falls back to plain text for rich markup even when a worker domain is available", () => {
     const richParsed = {
       ...parsed,
       screens: {
@@ -141,16 +141,8 @@ describe("buildModifications", () => {
       r2Url,
       "https://worker.example.com"
     );
-    const dynamicElements = mods["elements.add"] as Array<Record<string, unknown>>;
-    const richTextElement = dynamicElements.find(
-      (element) => element.name === "S2_Body_Rich_Dynamic"
-    );
 
-    expect(mods["S2_Body.text"]).toBe("");
-    expect(richTextElement).toBeDefined();
-    expect(String(richTextElement?.source)).toContain(
-      "https://worker.example.com/rich-text.svg?payload="
-    );
+    expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
   });
 
   it("handles empty background gracefully", () => {

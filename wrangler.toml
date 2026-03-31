@@ -16,7 +16,7 @@ bucket_name = "video-automaton-assets"
 # Environment variables (set secrets via `wrangler secret put`)
 [vars]
 TEMPLATE_9X16_ID = "ae7226f1-f69c-483b-9cb4-7db0045539bc"
-TEMPLATE_4X5_ID = "ae7226f1-f69c-483b-9cb4-7db0045539bc"
+TEMPLATE_4X5_ID = "bfa21b6e-9aad-439f-868e-9784d682be9c"
 # NOTIFY_WEBHOOK_URL is set as a secret:
 #   wrangler secret put NOTIFY_WEBHOOK_URL
 

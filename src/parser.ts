@@ -10,12 +10,13 @@ const DEFAULT_SLIDE_DURATION = 3;
  */
 export function parseBrief(req: ParseBriefRequest): ParsedBrief {
   const { brief, backgrounds, sizes, audio, accolade, badge, logo, novelty } = req;
+  const normalizedBrief = normalizeStructuralHeadings(brief);
 
   const campaignId = extractCampaignId(brief);
-  const variants = extractVariants(brief);
-  const { screens, explicitDurations } = extractScreens(brief);
+  const variants = extractVariants(normalizedBrief);
+  const { screens, explicitDurations } = extractScreens(normalizedBrief);
   const screenDurations = resolveScreenDurations(
-    brief,
+    normalizedBrief,
     variants,
     screens,
     explicitDurations
@@ -88,6 +89,40 @@ function extractVariants(brief: string): Variant[] {
 
 function stripEnclosingQuotes(value: string): string {
   return value.replace(/^[\"'“”]+|[\"'“”]+$/g, "").trim();
+}
+
+function normalizeStructuralHeadings(brief: string): string {
+  return brief
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => normalizeStructuralHeadingLine(line))
+    .join("\n");
+}
+
+function normalizeStructuralHeadingLine(line: string): string {
+  const headingCore = String.raw`(?:V\d+|(?:Screen|S)\s*\d+(?:\s*\([^)]*\))?)`;
+  const markdownWrapped = new RegExp(
+    String.raw`^(\s*)(\*\*|__)\s*(${headingCore}\s*[:\-–]?)\s*\2(\s*)(.*)$`,
+    "i"
+  );
+  const markdownColonOutside = new RegExp(
+    String.raw`^(\s*)(\*\*|__)\s*(${headingCore})\s*\2(\s*[:\-–]\s*)(.*)$`,
+    "i"
+  );
+  const htmlWrapped = new RegExp(
+    String.raw`^(\s*)<\s*(?:strong|b)\s*>\s*(${headingCore}\s*[:\-–]?)\s*<\s*\/\s*(?:strong|b)\s*>(\s*)(.*)$`,
+    "i"
+  );
+  const htmlColonOutside = new RegExp(
+    String.raw`^(\s*)<\s*(?:strong|b)\s*>\s*(${headingCore})\s*<\s*\/\s*(?:strong|b)\s*>(\s*[:\-–]\s*)(.*)$`,
+    "i"
+  );
+
+  return line
+    .replace(markdownWrapped, "$1$3$4$5")
+    .replace(markdownColonOutside, "$1$3$4$5")
+    .replace(htmlWrapped, "$1$2$3$4")
+    .replace(htmlColonOutside, "$1$2$3$4");
 }
 
 /**
@@ -188,7 +223,7 @@ function parseScreenBlock(block: string): {
     return { screen, ...(duration !== undefined ? { duration } : {}) };
   }
 
-  const disclaimerStart = lines.findIndex((line) => line.startsWith("*"));
+  const disclaimerStart = lines.findIndex((line) => /^\*(?!\*)/.test(line));
   const contentLines =
     disclaimerStart >= 0 ? lines.slice(0, disclaimerStart) : lines;
   const disclaimerLines =
