@@ -1369,9 +1369,15 @@
     }
 
     function buildScreenSlide(screenNumber, screen) {
+      const hasAccolade = Boolean(parsedData?.accolade);
       return {
         screenNumber,
-        header: screenNumber === "11" ? (screen.header || "Breethe") : (screen.header || ""),
+        header:
+          screenNumber === "11"
+            ? (screen.header || "Breethe")
+            : screenNumber === "9" && hasAccolade
+              ? ""
+              : (screen.header || ""),
         body: screen.body || "",
         disclaimer: screen.disclaimer || "",
         duration: parsedData.screenDurations?.[screenNumber] || 3,
@@ -1527,68 +1533,68 @@
       if (screenNumber <= 8) {
         if (block === "Header") {
           return {
-            x: is45 ? 10.5 : 10,
-            y: is45 ? 11.8 : 12.8,
-            width: is45 ? 79 : 76,
+            x: is45 ? 9.5 : 8.8,
+            y: is45 ? 10.6 : 11.3,
+            width: is45 ? 83 : 82,
             fontSize: getDefaultPreviewFontSize(elementName),
             color: "#ffffff",
             weight: 700,
-            lineHeight: 1.02,
+            lineHeight: 1.04,
             align: "left",
           };
         }
 
         if (block === "Body") {
           return {
-            x: is45 ? 10.5 : 10,
-            y: is45 ? 21.5 : 22.1,
-            width: is45 ? 80 : 78,
+            x: is45 ? 9.5 : 8.8,
+            y: is45 ? 20.3 : 21.2,
+            width: is45 ? 83 : 82,
             fontSize: getDefaultPreviewFontSize(elementName),
             color: "#ffffff",
             weight: 600,
-            lineHeight: 1.02,
+            lineHeight: 1.04,
             align: "left",
           };
         }
 
         return {
-          x: is45 ? 10.5 : 10,
-          y: is45 ? 78.5 : 81.5,
-          width: is45 ? 80 : 78,
+          x: is45 ? 9.5 : 8.8,
+          y: is45 ? 79.2 : 81.5,
+          width: is45 ? 83 : 82,
           fontSize: getDefaultPreviewFontSize(elementName),
           color: "#eefcff",
           weight: 400,
-          lineHeight: 1.1,
+          lineHeight: 1.12,
           align: "left",
         };
       }
 
       if (screenNumber === 9) {
         if (block === "Header") {
-          return { x: 50, y: is45 ? 13.5 : 12.5, width: is45 ? 64 : 70, fontSize: 24, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+          return { x: 50, y: is45 ? 11 : 10.5, width: is45 ? 66 : 62, fontSize: is45 ? 26 : 28, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
         }
         if (block === "Body") {
-          return { x: 50, y: is45 ? 44 : 39.5, width: is45 ? 62 : 68, fontSize: 25, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+          return { x: 50, y: is45 ? 52 : 53, width: is45 ? 66 : 64, fontSize: is45 ? 30 : 32, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
         }
         return { x: 50, y: is45 ? 84 : 82, width: is45 ? 68 : 70, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
       }
 
       if (screenNumber === 10) {
         if (block === "Header") {
-          return { x: 50, y: is45 ? 26 : 24, width: is45 ? 70 : 78, fontSize: is45 ? 27 : 28, color: "#ffffff", weight: 600, lineHeight: 1, align: "center" };
+          return { x: 50, y: is45 ? 22 : 20, width: 82, fontSize: is45 ? 32 : 34, color: "#ffffff", weight: 600, lineHeight: 1.01, align: "center" };
         }
         if (block === "Body") {
-          return { x: 50, y: is45 ? 59 : 57, width: is45 ? 38 : 44, fontSize: is45 ? 21 : 22, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+          return { x: 50, y: is45 ? 63 : 62, width: is45 ? 56 : 55, fontSize: is45 ? 25 : 26, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
         }
         return { x: 50, y: 84, width: 68, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
       }
 
       if (screenNumber === 11) {
         if (block === "Header") {
-          return { x: is45 ? 35 : 34, y: is45 ? 17.2 : 15.2, width: is45 ? 34 : 42, fontSize: is45 ? 32 : 34, color: "#ffffff", weight: 400, lineHeight: 1, align: "left" };
+          return { x: 31, y: is45 ? 16 : 14.5, width: is45 ? 42 : 46, fontSize: is45 ? 36 : 40, color: "#ffffff", weight: 400, lineHeight: 1, align: "left" };
         }
         if (block === "Body") {
-          return { x: 50, y: is45 ? 31.8 : 28.7, width: is45 ? 60 : 72, fontSize: is45 ? 26 : 27, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+          return { x: 50, y: is45 ? 34 : 31.5, width: is45 ? 72 : 76, fontSize: is45 ? 28 : 31, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
         }
         return { x: 50, y: 84, width: 68, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
       }
@@ -1600,15 +1606,15 @@
       const is45 = size === "4:5";
 
       if (elementName === "S9_Accolade") {
-        return { x: 50, y: is45 ? 24 : 21, width: is45 ? 52 : 62, height: is45 ? 18 : 19, align: "center" };
+        return { x: 50, y: is45 ? 24 : 25, width: is45 ? 60 : 58, height: is45 ? 19 : 20, align: "center" };
       }
 
       if (elementName === "S11_Logo") {
-        return { x: 24, y: is45 ? 20.3 : 18.5, width: is45 ? 9 : 11, height: is45 ? 6.5 : 7, align: "center" };
+        return { x: 22, y: is45 ? 20 : 18.5, width: is45 ? 12 : 14, height: is45 ? 8 : 9, align: "center" };
       }
 
       if (elementName === "S11_Badge") {
-        return { x: 50, y: is45 ? 46.5 : 40.8, width: is45 ? 31 : 37, height: is45 ? 8 : 7.5, align: "center" };
+        return { x: 50, y: is45 ? 50 : 46.5, width: is45 ? 40 : 44, height: is45 ? 10 : 9, align: "center" };
       }
 
       return null;
@@ -1616,29 +1622,29 @@
 
     function getDefaultPreviewFontSize(elementName) {
       const fontSizes = {
-        S1_Header: 35,
-        S2_Header: 31,
-        S3_Header: 32,
-        S4_Header: 32,
-        S5_Header: 32,
-        S6_Header: 28,
-        S7_Header: 32,
-        S8_Header: 32,
-        S1_Body: 28,
-        S2_Body: 30,
-        S3_Body: 29,
-        S4_Body: 29,
-        S5_Body: 29,
-        S6_Body: 28,
-        S7_Body: 25,
-        S8_Body: 29,
-        S2_Disclaimer: 13,
-        S3_Disclaimer: 13,
-        S4_Disclaimer: 13,
-        S5_Disclaimer: 13,
-        S6_Disclaimer: 13,
-        S7_Disclaimer: 13,
-        S8_Disclaimer: 13,
+        S1_Header: 46,
+        S2_Header: 41,
+        S3_Header: 42,
+        S4_Header: 42,
+        S5_Header: 42,
+        S6_Header: 37,
+        S7_Header: 42,
+        S8_Header: 42,
+        S1_Body: 36,
+        S2_Body: 38,
+        S3_Body: 37,
+        S4_Body: 37,
+        S5_Body: 37,
+        S6_Body: 35,
+        S7_Body: 31,
+        S8_Body: 37,
+        S2_Disclaimer: 14,
+        S3_Disclaimer: 14,
+        S4_Disclaimer: 14,
+        S5_Disclaimer: 14,
+        S6_Disclaimer: 14,
+        S7_Disclaimer: 14,
+        S8_Disclaimer: 14,
       };
 
       return fontSizes[elementName] || 28;

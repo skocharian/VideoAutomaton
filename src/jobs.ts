@@ -9,12 +9,9 @@ import type {
 } from "./types";
 import { computeTotalDuration } from "./parser";
 import {
-  hasHighlightedSegments,
-  layoutHighlightedFragments,
   stripRichTextMarkup,
 } from "./rich-text";
 import {
-  getTemplateDimensions,
   getTemplateElementLayout,
 } from "./template-layout";
 
@@ -372,19 +369,6 @@ function applyTextLayerModifications(
 
   mods[`${elementName}.text`] = strippedText;
   applyTextLayerOverrides(mods, elementName, parsed?.textOverrides?.[elementName]);
-
-  if (hasHighlightedSegments(text)) {
-    const overlays = createHighlightTextElements(
-      elementName,
-      text,
-      timing,
-      size,
-      parsed?.textOverrides?.[elementName]
-    );
-    if (overlays.length > 0) {
-      addedElements.push(...overlays);
-    }
-  }
 }
 
 function applyTextLayerOverrides(
@@ -443,88 +427,6 @@ function createDynamicImageElement(
   };
 }
 
-function createHighlightTextElements(
-  elementName: string,
-  text: string,
-  timing: ScreenTiming,
-  size: string,
-  override: TextLayerOverride | undefined
-): ModificationValue[] {
-  const layout = getTemplateElementLayout(elementName, size);
-  const dimensions = getTemplateDimensions(size);
-  if (!layout) return [];
-
-  const box = resolveLayoutBox(layout, dimensions, override);
-  if (!box.width || !box.height) return [];
-
-  const payload = {
-    text,
-    width: box.width,
-    height: box.height,
-    align: box.align,
-    fontSize:
-      Number.isFinite(override?.fontSize) && Number(override?.fontSize) > 0
-        ? Number(override?.fontSize)
-        : typeof layout.font_size === "number"
-          ? layout.font_size
-          : Number.parseFloat(String(layout.font_size)) || 28,
-    fontWeight:
-      typeof layout.font_weight === "number" || typeof layout.font_weight === "string"
-        ? layout.font_weight
-        : 600,
-    lineHeight:
-      typeof layout.line_height === "number" || typeof layout.line_height === "string"
-        ? layout.line_height
-        : "100%",
-    emphasisColor: "#8ff3f6",
-    shadowColor:
-      typeof layout.shadow_color === "string" ? layout.shadow_color : undefined,
-    shadowBlur:
-      typeof layout.shadow_blur === "number" || typeof layout.shadow_blur === "string"
-        ? layout.shadow_blur
-        : undefined,
-    shadowY:
-      typeof layout.shadow_y === "number" || typeof layout.shadow_y === "string"
-        ? layout.shadow_y
-        : undefined,
-  };
-
-  return layoutHighlightedFragments(payload).map((fragment, index) => ({
-    name: `${elementName}_Highlight_${index + 1}_Dynamic`,
-    type: "text",
-    track: Number(layout.track ?? 10) + 20 + index,
-    time: timing.time,
-    duration: timing.duration,
-    x: toPercent(box.left + fragment.x, dimensions.width),
-    y: toPercent(box.top + fragment.y, dimensions.height),
-    x_anchor: "0%",
-    y_anchor: "0%",
-    width: toPercent(fragment.width, dimensions.width),
-    height: toPercent(fragment.height, dimensions.height),
-    x_alignment: "0%",
-    y_alignment: "0%",
-    text: fragment.text,
-    font_family:
-      typeof layout.font_family === "string"
-        ? `${layout.font_family}, Open Sans, Arial, sans-serif`
-        : "Open Sans, Arial, sans-serif",
-    font_weight: 700,
-    font_size: payload.fontSize,
-    line_height: payload.lineHeight,
-    fill_color: payload.emphasisColor,
-    ...(typeof layout.shadow_color === "string"
-      ? { shadow_color: layout.shadow_color }
-      : {}),
-    ...(typeof layout.shadow_blur === "number" || typeof layout.shadow_blur === "string"
-      ? { shadow_blur: layout.shadow_blur }
-      : {}),
-    ...(typeof layout.shadow_y === "number" || typeof layout.shadow_y === "string"
-      ? { shadow_y: layout.shadow_y }
-      : {}),
-    text_wrap: false,
-    text_clip: false,
-  }));
-}
 
 function pickLayoutValue(
   value: unknown,
@@ -537,78 +439,6 @@ function pickLayoutValue(
   return fallback;
 }
 
-function normalizeAlign(value: unknown): "left" | "center" {
-  if (typeof value !== "string") return "left";
-  return value.trim() === "50%" ? "center" : "left";
-}
-
-function resolveLayoutBox(
-  layout: Record<string, unknown>,
-  dimensions: { width: number; height: number },
-  override: TextLayerOverride | undefined
-): {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  align: "left" | "center";
-} {
-  const width = toPixelDimension(layout.width, dimensions.width);
-  const height = toPixelDimension(layout.height, dimensions.height);
-  const x = toPixelCoordinate(
-    typeof override?.x === "string" && override.x.trim() ? override.x : layout.x,
-    dimensions.width
-  );
-  const y = toPixelCoordinate(
-    typeof override?.y === "string" && override.y.trim() ? override.y : layout.y,
-    dimensions.height
-  );
-  const align = normalizeAlign(layout.x_alignment);
-
-  return {
-    left: align === "center" ? x - width / 2 : x,
-    top: y,
-    width,
-    height,
-    align,
-  };
-}
-
-function toPixelDimension(
-  value: unknown,
-  total: number
-): number {
-  if (typeof value === "number") {
-    return Math.max(1, Math.round(value));
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.endsWith("%")) {
-      return Math.max(1, Math.round((total * Number.parseFloat(trimmed)) / 100));
-    }
-    if (trimmed.endsWith("px")) {
-      return Math.max(1, Math.round(Number.parseFloat(trimmed)));
-    }
-    const parsed = Number.parseFloat(trimmed);
-    if (Number.isFinite(parsed)) {
-      return Math.max(1, Math.round(parsed));
-    }
-  }
-
-  return 0;
-}
-
-function toPixelCoordinate(
-  value: unknown,
-  total: number
-): number {
-  return toPixelDimension(value, total);
-}
-
-function toPercent(value: number, total: number): string {
-  return `${Number(((value / total) * 100).toFixed(3))}%`;
-}
 
 function pickOptionalLayoutValue(
   value: unknown

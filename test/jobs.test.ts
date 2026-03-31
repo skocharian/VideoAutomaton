@@ -126,7 +126,7 @@ describe("buildModifications", () => {
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
   });
 
-  it("adds native text highlight overlays for marked phrases", () => {
+  it("does not add render-time highlight overlays for marked phrases", () => {
     const richParsed = {
       ...parsed,
       screens: {
@@ -143,13 +143,10 @@ describe("buildModifications", () => {
 
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
     const dynamicElements = mods["elements.add"] as Array<Record<string, unknown>>;
-    const highlightOverlay = dynamicElements.find(
+    const highlightOverlay = dynamicElements?.find(
       (element) => element.name === "S2_Body_Highlight_1_Dynamic"
     );
-    expect(highlightOverlay).toBeDefined();
-    expect(highlightOverlay?.type).toBe("text");
-    expect(highlightOverlay?.text).toBe("block overthinking");
-    expect(highlightOverlay?.fill_color).toBe("#8ff3f6");
+    expect(highlightOverlay).toBeUndefined();
   });
 
   it("applies local text overrides to creatomate modifications", () => {
