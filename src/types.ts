@@ -21,6 +21,13 @@ export interface ScreenText {
   disclaimer?: string;
 }
 
+export interface TextLayerOverride {
+  fontSize?: number;
+  color?: string;
+  x?: string;
+  y?: string;
+}
+
 export type ModificationValue =
   | string
   | number
@@ -34,6 +41,8 @@ export interface ParsedBrief {
   variants: Variant[];
   /** Keyed by screen number: "1", "2", ... "11" */
   screens: Record<string, ScreenText>;
+  /** Optional per-text-layer overrides keyed by element name, e.g. "S3_Header". */
+  textOverrides?: Record<string, TextLayerOverride>;
   /** Resolved duration per active screen in seconds. */
   screenDurations: Record<string, number>;
   backgrounds: string[];

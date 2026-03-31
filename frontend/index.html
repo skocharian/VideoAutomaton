@@ -244,6 +244,53 @@
       margin-bottom: 0.9rem;
     }
 
+    .editor-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .editor-fields {
+      min-width: 0;
+    }
+
+    .inline-preview-panel {
+      min-width: 0;
+    }
+
+    .inline-preview-panel .preview-card {
+      width: 100%;
+    }
+
+    .override-group {
+      margin-top: 0.55rem;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #f7fbff;
+    }
+
+    .override-group h4 {
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .override-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.6rem;
+    }
+
+    .override-grid .field {
+      margin-bottom: 0;
+    }
+
+    .override-grid label {
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
     .preview-shell {
       margin-top: 1.25rem;
       border-top: 1px solid var(--line);
@@ -296,10 +343,31 @@
       position: absolute;
       inset: 0;
       padding: 0.9rem;
-      display: flex;
-      flex-direction: column;
       color: #fff;
       text-shadow: 0 2px 12px rgba(7, 26, 56, 0.72);
+    }
+
+    .preview-text-layer,
+    .preview-image-layer {
+      position: absolute;
+    }
+
+    .preview-text-layer {
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      white-space: pre-wrap;
+      word-break: break-word;
+      text-shadow: 0 2px 12px rgba(7, 26, 56, 0.72);
+    }
+
+    .preview-text-layer strong {
+      font-weight: 800;
+    }
+
+    .preview-image-layer img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 3px 10px rgba(7, 26, 56, 0.32));
     }
 
     .preview-duration {
@@ -476,8 +544,12 @@
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       }
 
-      .preview-copy {
-        width: 76%;
+      .editor-row {
+        grid-template-columns: 1fr;
+      }
+
+      .override-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
   </style>
@@ -693,6 +765,7 @@
       if (parsedData) {
         renderPreviewToolbar();
         renderPreview();
+        renderInlineEditorPreviews();
       }
     }
 
@@ -735,6 +808,7 @@
       renderBgTags();
       renderPreviewToolbar();
       renderPreview();
+      renderInlineEditorPreviews();
     }
 
     function renderBgTags() {
@@ -756,6 +830,7 @@
       renderBgTags();
       renderPreviewToolbar();
       renderPreview();
+      renderInlineEditorPreviews();
     }
 
     async function handleUpload() {
@@ -1018,6 +1093,16 @@
       document.getElementById("step-confirm").scrollIntoView({ behavior: "smooth" });
     }
 
+    function getTextOverride(elementName) {
+      parsedData.textOverrides = parsedData.textOverrides || {};
+      return parsedData.textOverrides[elementName] || {};
+    }
+
+    function getOverridePositionValue(value) {
+      if (!value) return "";
+      return String(value).replace(/%$/, "");
+    }
+
     function renderVariantsEditor() {
       const screenOneDuration = parsedData.screenDurations?.["1"] ?? 3;
       const variantsContainer = document.getElementById("variants-container");
@@ -1028,16 +1113,25 @@
           <label>S1 Duration</label>
           <input type="number" min="0.1" step="0.1" data-duration-screen="1" value="${escapeHtml(String(screenOneDuration))}" />
           <div class="helper">This controls how long the opening variant slide stays on screen.</div>
+          ${renderTextOverrideEditor("S1_Header", "S1 Headline Style")}
+          ${renderTextOverrideEditor("S1_Body", "S1 Subheadline Style")}
         </div>
         ${parsedData.variants.map((variant, index) => `
           <div class="variant-card">
-            <label>${escapeHtml(variant.id)} Headline</label>
-            <input data-vi="${index}" data-field="headline" value="${escapeHtml(variant.headline)}" />
-            <label>${escapeHtml(variant.id)} Subheadline</label>
-            <textarea data-vi="${index}" data-field="subheadline" class="screen-field">${escapeHtml(variant.subheadline)}</textarea>
+            <div class="editor-row">
+              <div class="editor-fields">
+                <label>${escapeHtml(variant.id)} Headline</label>
+                <input data-vi="${index}" data-field="headline" value="${escapeHtml(variant.headline)}" />
+                <label>${escapeHtml(variant.id)} Subheadline</label>
+                <textarea data-vi="${index}" data-field="subheadline" class="screen-field">${escapeHtml(variant.subheadline)}</textarea>
+              </div>
+              <div class="inline-preview-panel" data-variant-preview="${index}"></div>
+            </div>
           </div>
         `).join("")}
       `;
+
+      renderInlineEditorPreviews();
     }
 
     function renderScreensEditor() {
@@ -1047,32 +1141,98 @@
       screensContainer.innerHTML = screenEntries.length
         ? `<h3>Screens</h3>${screenEntries.map(([num, screen]) => `
             <div class="screen-card">
-              <strong>Screen ${escapeHtml(num)}</strong>
-              <div class="field">
-                <label>S${escapeHtml(num)} Duration</label>
-                <input type="number" min="0.1" step="0.1" data-duration-screen="${escapeHtml(num)}" value="${escapeHtml(String(parsedData.screenDurations?.[num] ?? 3))}" />
+              <div class="editor-row">
+                <div class="editor-fields">
+                  <strong>Screen ${escapeHtml(num)}</strong>
+                  <div class="field">
+                    <label>S${escapeHtml(num)} Duration</label>
+                    <input type="number" min="0.1" step="0.1" data-duration-screen="${escapeHtml(num)}" value="${escapeHtml(String(parsedData.screenDurations?.[num] ?? 3))}" />
+                  </div>
+                  ${screen.header !== undefined ? `
+                    <div class="field">
+                      <label>S${escapeHtml(num)} Header</label>
+                      <textarea data-screen="${escapeHtml(num)}" data-sfield="header" class="screen-field">${escapeHtml(screen.header || "")}</textarea>
+                      ${renderTextOverrideEditor(`S${num}_Header`, `S${num} Header Style`)}
+                    </div>
+                  ` : ""}
+                  ${screen.body !== undefined ? `
+                    <div class="field">
+                      <label>S${escapeHtml(num)} Body</label>
+                      <textarea data-screen="${escapeHtml(num)}" data-sfield="body" class="screen-field">${escapeHtml(screen.body || "")}</textarea>
+                      ${renderTextOverrideEditor(`S${num}_Body`, `S${num} Body Style`)}
+                    </div>
+                  ` : ""}
+                  ${screen.disclaimer !== undefined ? `
+                    <div class="field">
+                      <label>S${escapeHtml(num)} Disclaimer</label>
+                      <textarea data-screen="${escapeHtml(num)}" data-sfield="disclaimer" class="screen-field">${escapeHtml(screen.disclaimer || "")}</textarea>
+                      ${renderTextOverrideEditor(`S${num}_Disclaimer`, `S${num} Disclaimer Style`)}
+                    </div>
+                  ` : ""}
+                </div>
+                <div class="inline-preview-panel" data-screen-preview="${escapeHtml(num)}"></div>
               </div>
-              ${screen.header !== undefined ? `
-                <div class="field">
-                  <label>S${escapeHtml(num)} Header</label>
-                  <textarea data-screen="${escapeHtml(num)}" data-sfield="header" class="screen-field">${escapeHtml(screen.header || "")}</textarea>
-                </div>
-              ` : ""}
-              ${screen.body !== undefined ? `
-                <div class="field">
-                  <label>S${escapeHtml(num)} Body</label>
-                  <textarea data-screen="${escapeHtml(num)}" data-sfield="body" class="screen-field">${escapeHtml(screen.body || "")}</textarea>
-                </div>
-              ` : ""}
-              ${screen.disclaimer !== undefined ? `
-                <div class="field">
-                  <label>S${escapeHtml(num)} Disclaimer</label>
-                  <textarea data-screen="${escapeHtml(num)}" data-sfield="disclaimer" class="screen-field">${escapeHtml(screen.disclaimer || "")}</textarea>
-                </div>
-              ` : ""}
             </div>
           `).join("")}`
         : "";
+
+      renderInlineEditorPreviews();
+    }
+
+    function renderTextOverrideEditor(elementName, label) {
+      const override = getTextOverride(elementName);
+
+      return `
+        <div class="override-group">
+          <h4>${escapeHtml(label)}</h4>
+          <div class="override-grid">
+            <div class="field">
+              <label>Font</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                data-style-element="${escapeHtml(elementName)}"
+                data-style-prop="fontSize"
+                value="${escapeHtml(override.fontSize ? String(override.fontSize) : "")}"
+                placeholder="Default"
+              />
+            </div>
+            <div class="field">
+              <label>Color</label>
+              <input
+                type="text"
+                data-style-element="${escapeHtml(elementName)}"
+                data-style-prop="color"
+                value="${escapeHtml(override.color || "")}"
+                placeholder="#ffffff"
+              />
+            </div>
+            <div class="field">
+              <label>X %</label>
+              <input
+                type="number"
+                step="0.1"
+                data-style-element="${escapeHtml(elementName)}"
+                data-style-prop="x"
+                value="${escapeHtml(getOverridePositionValue(override.x))}"
+                placeholder="Default"
+              />
+            </div>
+            <div class="field">
+              <label>Y %</label>
+              <input
+                type="number"
+                step="0.1"
+                data-style-element="${escapeHtml(elementName)}"
+                data-style-prop="y"
+                value="${escapeHtml(getOverridePositionValue(override.y))}"
+                placeholder="Default"
+              />
+            </div>
+          </div>
+        </div>
+      `;
     }
 
     function renderSummary() {
@@ -1138,6 +1298,7 @@
       previewState.background = document.getElementById("preview-background").value;
       previewState.size = document.getElementById("preview-size").value;
       renderPreview();
+      renderInlineEditorPreviews();
     }
 
     async function renderPreview() {
@@ -1166,48 +1327,94 @@
       previewGrid.innerHTML = slides
         .map((slide) => renderPreviewCard(slide, backgroundMedia))
         .join("");
+
+      renderInlineEditorPreviews();
     }
 
     function buildPreviewSlides() {
       const slides = [];
-      const variant = parsedData.variants[previewState.variantIndex] || parsedData.variants[0];
+      const variantSlide = buildVariantSlide(previewState.variantIndex);
 
-      if (variant) {
-        slides.push({
-          screenNumber: "1",
-          header: variant.headline || "",
-          body: variant.subheadline || "",
-          disclaimer: "",
-          duration: parsedData.screenDurations?.["1"] || 3,
-          mode: "copy",
-        });
+      if (variantSlide) {
+        slides.push(variantSlide);
       }
 
       Object.entries(parsedData.screens)
         .sort((a, b) => Number(a[0]) - Number(b[0]))
         .forEach(([screenNumber, screen]) => {
           if (screenNumber === "1") return;
-          slides.push({
-            screenNumber,
-            header: screenNumber === "11" ? (screen.header || "Breethe") : (screen.header || ""),
-            body: screen.body || "",
-            disclaimer: screen.disclaimer || "",
-            duration: parsedData.screenDurations?.[screenNumber] || 3,
-            mode:
-              screenNumber === "9"
-                ? "accolade"
-                : screenNumber === "11"
-                  ? "end"
-                  : "copy",
-          });
+          slides.push(buildScreenSlide(screenNumber, screen));
         });
 
       return slides;
     }
 
-    function renderPreviewCard(slide, backgroundMedia) {
-      const screenNumber = Number(slide.screenNumber);
-      const size = previewState.size || "9:16";
+    function buildVariantSlide(variantIndex) {
+      const variant = parsedData.variants[variantIndex] || parsedData.variants[0];
+      if (!variant) return null;
+
+      return {
+        screenNumber: "1",
+        header: variant.headline || "",
+        body: variant.subheadline || "",
+        disclaimer: "",
+        duration: parsedData.screenDurations?.["1"] || 3,
+        mode: "copy",
+        elements: {
+          header: "S1_Header",
+          body: "S1_Body",
+        },
+      };
+    }
+
+    function buildScreenSlide(screenNumber, screen) {
+      return {
+        screenNumber,
+        header: screenNumber === "11" ? (screen.header || "Breethe") : (screen.header || ""),
+        body: screen.body || "",
+        disclaimer: screen.disclaimer || "",
+        duration: parsedData.screenDurations?.[screenNumber] || 3,
+        mode:
+          screenNumber === "9"
+            ? "accolade"
+            : screenNumber === "11"
+              ? "end"
+              : "copy",
+        elements: {
+          header: `S${screenNumber}_Header`,
+          body: `S${screenNumber}_Body`,
+          disclaimer: `S${screenNumber}_Disclaimer`,
+        },
+      };
+    }
+
+    async function renderInlineEditorPreviews() {
+      if (!parsedData) return;
+
+      const backgroundMedia = await getPreviewBackgroundMedia(previewState.background);
+
+      document.querySelectorAll("[data-variant-preview]").forEach((container) => {
+        const index = Number.parseInt(container.dataset.variantPreview, 10) || 0;
+        const slide = buildVariantSlide(index);
+        container.innerHTML = slide
+          ? renderPreviewCard(slide, backgroundMedia, { compact: true, showDuration: false, scale: 0.28 })
+          : "";
+      });
+
+      document.querySelectorAll("[data-screen-preview]").forEach((container) => {
+        const num = container.dataset.screenPreview;
+        const screen = parsedData.screens[num];
+        const slide = screen ? buildScreenSlide(num, screen) : null;
+        container.innerHTML = slide
+          ? renderPreviewCard(slide, backgroundMedia, { compact: true, showDuration: false, scale: 0.28 })
+          : "";
+      });
+    }
+
+    function renderPreviewCard(slide, backgroundMedia, options = {}) {
+      const size = options.size || previewState.size || "9:16";
+      const scale = Number.isFinite(options.scale) ? options.scale : 0.32;
+      const showDuration = options.showDuration !== false;
       const accoladeUrl = document.getElementById("accolade-select").value
         ? assetUrl(document.getElementById("accolade-select").value)
         : "";
@@ -1218,50 +1425,230 @@
         ? assetUrl(document.getElementById("badge-select").value)
         : "";
 
-      let overlayHtml = "";
-      if (slide.mode === "accolade") {
-        overlayHtml = `
-          <div class="preview-centered">
-            ${accoladeUrl ? `<img class="preview-accolade" src="${accoladeUrl}" alt="Accolade" />` : ""}
-            ${slide.header ? `<div class="preview-header">${renderRichTextHtml(slide.header)}</div>` : ""}
-            ${slide.body ? `<div class="preview-body">${renderRichTextHtml(slide.body)}</div>` : ""}
-          </div>
-        `;
-      } else if (slide.mode === "end") {
-        overlayHtml = `
-          <div class="preview-end">
-            <div class="logo-row">
-              ${logoUrl ? `<img src="${logoUrl}" alt="Logo" />` : ""}
-              <div class="wordmark">${renderRichTextHtml(slide.header || "Breethe")}</div>
-            </div>
-            ${slide.body ? `<div class="tagline">${renderRichTextHtml(slide.body)}</div>` : ""}
-            ${badgeUrl ? `<img class="badge" src="${badgeUrl}" alt="App Store Badge" />` : ""}
-          </div>
-        `;
-      } else {
-        overlayHtml = `
-          <div class="preview-copy copy-1-8">
-            ${slide.header ? `<h4>${renderRichTextHtml(slide.header)}</h4>` : ""}
-            ${slide.body ? `<p>${renderRichTextHtml(slide.body)}</p>` : ""}
-            ${slide.disclaimer ? `<small>${renderRichTextHtml(slide.disclaimer)}</small>` : ""}
-          </div>
-        `;
-      }
+      const overlayHtml = [
+        slide.mode === "accolade" && accoladeUrl
+          ? renderPreviewImageLayer("S9_Accolade", accoladeUrl, size)
+          : "",
+        slide.mode === "end" && logoUrl
+          ? renderPreviewImageLayer("S11_Logo", logoUrl, size)
+          : "",
+        slide.mode === "end" && badgeUrl
+          ? renderPreviewImageLayer("S11_Badge", badgeUrl, size)
+          : "",
+        slide.header
+          ? renderPreviewTextLayer(slide.header, slide.elements?.header, size, scale)
+          : "",
+        slide.body
+          ? renderPreviewTextLayer(slide.body, slide.elements?.body, size, scale)
+          : "",
+        slide.disclaimer
+          ? renderPreviewTextLayer(slide.disclaimer, slide.elements?.disclaimer, size, scale)
+          : "",
+      ].join("");
 
       return `
-        <div class="preview-card" data-size="${escapeHtml(size)}">
+        <div class="preview-card" data-size="${escapeHtml(size)}" style="--preview-scale:${escapeHtml(String(scale))};">
           <div class="preview-media">
             ${backgroundMedia?.src
               ? `<img src="${backgroundMedia.src}" alt="Background preview" loading="lazy" />`
               : ""}
           </div>
           <div class="preview-overlay">
-            <div class="preview-duration">${formatSeconds(slide.duration)}</div>
+            ${showDuration ? `<div class="preview-duration">${formatSeconds(slide.duration)}</div>` : ""}
             ${overlayHtml}
             <div class="preview-screen-label">S${escapeHtml(slide.screenNumber)}</div>
           </div>
         </div>
       `;
+    }
+
+    function renderPreviewTextLayer(text, elementName, size, scale) {
+      if (!text || !elementName) return "";
+      const layout = getPreviewTextLayout(elementName, size);
+      if (!layout) return "";
+
+      const override = getTextOverride(elementName);
+      const x = normalizeOverridePosition(override.x, layout.x);
+      const y = normalizeOverridePosition(override.y, layout.y);
+      const fontSize = Number.isFinite(override.fontSize) ? Number(override.fontSize) : layout.fontSize;
+      const color = override.color || layout.color;
+      const textAlign = layout.align === "center" ? "center" : "left";
+      const transform = layout.align === "center" ? "translateX(-50%)" : "none";
+
+      return `
+        <div
+          class="preview-text-layer"
+          style="
+            left:${escapeHtml(String(x))}%;
+            top:${escapeHtml(String(y))}%;
+            width:${escapeHtml(String(layout.width))}%;
+            transform:${transform};
+            text-align:${textAlign};
+            font-size:calc(${escapeHtml(String(fontSize))}px * var(--preview-scale));
+            color:${escapeHtml(color)};
+            font-weight:${escapeHtml(String(layout.weight))};
+            line-height:${escapeHtml(String(layout.lineHeight))};
+          "
+        >${renderRichTextHtml(text)}</div>
+      `;
+    }
+
+    function renderPreviewImageLayer(elementName, src, size) {
+      const layout = getPreviewImageLayout(elementName, size);
+      if (!layout || !src) return "";
+
+      const transform = layout.align === "center" ? "translateX(-50%)" : "none";
+
+      return `
+        <div
+          class="preview-image-layer"
+          style="
+            left:${escapeHtml(String(layout.x))}%;
+            top:${escapeHtml(String(layout.y))}%;
+            width:${escapeHtml(String(layout.width))}%;
+            height:${escapeHtml(String(layout.height))}%;
+            transform:${transform};
+          "
+        >
+          <img src="${escapeHtml(src)}" alt="${escapeHtml(elementName)}" loading="lazy" />
+        </div>
+      `;
+    }
+
+    function getPreviewTextLayout(elementName, size) {
+      const is45 = size === "4:5";
+      const match = String(elementName).match(/^S(\d+)_(Header|Body|Disclaimer)$/);
+      if (!match) return null;
+
+      const screenNumber = Number.parseInt(match[1], 10);
+      const block = match[2];
+
+      if (screenNumber <= 8) {
+        if (block === "Header") {
+          return {
+            x: is45 ? 12 : 13,
+            y: is45 ? 14 : 15,
+            width: is45 ? 74 : 67,
+            fontSize: getDefaultPreviewFontSize(elementName),
+            color: "#ffffff",
+            weight: 700,
+            lineHeight: 0.98,
+            align: "left",
+          };
+        }
+
+        if (block === "Body") {
+          return {
+            x: is45 ? 12 : 13,
+            y: is45 ? 25 : 24,
+            width: is45 ? 74 : 67,
+            fontSize: getDefaultPreviewFontSize(elementName),
+            color: "#ffffff",
+            weight: 600,
+            lineHeight: 1,
+            align: "left",
+          };
+        }
+
+        return {
+          x: is45 ? 12 : 13,
+          y: is45 ? 86 : 85,
+          width: is45 ? 74 : 68,
+          fontSize: getDefaultPreviewFontSize(elementName),
+          color: "#eefcff",
+          weight: 400,
+          lineHeight: 1.05,
+          align: "left",
+        };
+      }
+
+      if (screenNumber === 9) {
+        if (block === "Header") {
+          return { x: 50, y: is45 ? 13.5 : 12.5, width: is45 ? 64 : 70, fontSize: 24, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+        }
+        if (block === "Body") {
+          return { x: 50, y: is45 ? 44 : 39.5, width: is45 ? 62 : 68, fontSize: 25, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+        }
+        return { x: 50, y: is45 ? 84 : 82, width: is45 ? 68 : 70, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
+      }
+
+      if (screenNumber === 10) {
+        if (block === "Header") {
+          return { x: 50, y: is45 ? 26 : 24, width: is45 ? 70 : 78, fontSize: is45 ? 27 : 28, color: "#ffffff", weight: 600, lineHeight: 1, align: "center" };
+        }
+        if (block === "Body") {
+          return { x: 50, y: is45 ? 59 : 57, width: is45 ? 38 : 44, fontSize: is45 ? 21 : 22, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+        }
+        return { x: 50, y: 84, width: 68, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
+      }
+
+      if (screenNumber === 11) {
+        if (block === "Header") {
+          return { x: is45 ? 35 : 34, y: is45 ? 17.2 : 15.2, width: is45 ? 34 : 42, fontSize: is45 ? 32 : 34, color: "#ffffff", weight: 400, lineHeight: 1, align: "left" };
+        }
+        if (block === "Body") {
+          return { x: 50, y: is45 ? 31.8 : 28.7, width: is45 ? 60 : 72, fontSize: is45 ? 26 : 27, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
+        }
+        return { x: 50, y: 84, width: 68, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
+      }
+
+      return null;
+    }
+
+    function getPreviewImageLayout(elementName, size) {
+      const is45 = size === "4:5";
+
+      if (elementName === "S9_Accolade") {
+        return { x: 50, y: is45 ? 24 : 21, width: is45 ? 52 : 62, height: is45 ? 18 : 19, align: "center" };
+      }
+
+      if (elementName === "S11_Logo") {
+        return { x: 24, y: is45 ? 20.3 : 18.5, width: is45 ? 9 : 11, height: is45 ? 6.5 : 7, align: "center" };
+      }
+
+      if (elementName === "S11_Badge") {
+        return { x: 50, y: is45 ? 46.5 : 40.8, width: is45 ? 31 : 37, height: is45 ? 8 : 7.5, align: "center" };
+      }
+
+      return null;
+    }
+
+    function getDefaultPreviewFontSize(elementName) {
+      const fontSizes = {
+        S1_Header: 34,
+        S2_Header: 30,
+        S3_Header: 31,
+        S4_Header: 31,
+        S5_Header: 31,
+        S6_Header: 27,
+        S7_Header: 31,
+        S8_Header: 31,
+        S1_Body: 27,
+        S2_Body: 29,
+        S3_Body: 28,
+        S4_Body: 28,
+        S5_Body: 28,
+        S6_Body: 27,
+        S7_Body: 24,
+        S8_Body: 28,
+        S2_Disclaimer: 13,
+        S3_Disclaimer: 13,
+        S4_Disclaimer: 13,
+        S5_Disclaimer: 13,
+        S6_Disclaimer: 13,
+        S7_Disclaimer: 13,
+        S8_Disclaimer: 13,
+      };
+
+      return fontSizes[elementName] || 28;
+    }
+
+    function normalizeOverridePosition(value, fallback) {
+      if (typeof value === "string" && value.trim()) {
+        return Number.parseFloat(value);
+      }
+
+      return fallback;
     }
 
     function syncParsedDataFromForm() {
@@ -1286,6 +1673,44 @@
         const field = input.dataset.sfield;
         if (!parsedData.screens[num]) parsedData.screens[num] = {};
         parsedData.screens[num][field] = input.value;
+      });
+
+      parsedData.textOverrides = {};
+      document.querySelectorAll("[data-style-element]").forEach((input) => {
+        const elementName = input.dataset.styleElement;
+        const prop = input.dataset.styleProp;
+        const rawValue = input.value.trim();
+        if (!elementName || !prop || !rawValue) return;
+
+        if (!parsedData.textOverrides[elementName]) {
+          parsedData.textOverrides[elementName] = {};
+        }
+
+        if (prop === "fontSize") {
+          const value = Number.parseFloat(rawValue);
+          if (Number.isFinite(value) && value > 0) {
+            parsedData.textOverrides[elementName].fontSize = value;
+          }
+          return;
+        }
+
+        if (prop === "color") {
+          parsedData.textOverrides[elementName].color = rawValue;
+          return;
+        }
+
+        if (prop === "x" || prop === "y") {
+          const value = Number.parseFloat(rawValue);
+          if (Number.isFinite(value)) {
+            parsedData.textOverrides[elementName][prop] = `${value}%`;
+          }
+        }
+      });
+
+      Object.keys(parsedData.textOverrides).forEach((elementName) => {
+        if (!Object.keys(parsedData.textOverrides[elementName]).length) {
+          delete parsedData.textOverrides[elementName];
+        }
       });
 
       parsedData.screenDurations = parsedData.screenDurations || {};
@@ -1560,6 +1985,7 @@
       if (!parsedData) return;
       renderSummary();
       renderPreview();
+      renderInlineEditorPreviews();
     });
 
     document.getElementById("step-input").addEventListener("change", (event) => {
@@ -1569,6 +1995,7 @@
       if (["audio-select", "accolade-select", "badge-select", "logo-select"].includes(target.id)) {
         renderPreviewToolbar();
         renderPreview();
+        renderInlineEditorPreviews();
       }
     });
 

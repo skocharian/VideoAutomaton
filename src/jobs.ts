@@ -5,6 +5,7 @@ import type {
   RenderJob,
   CampaignSummary,
   CreatomateRenderRequest,
+  TextLayerOverride,
 } from "./types";
 import { computeTotalDuration } from "./parser";
 import {
@@ -59,7 +60,8 @@ export function buildModifications(
       variant.headline,
       timeline["1"],
       workerDomain,
-      size
+      size,
+      parsed
     );
     applyTextLayerModifications(
       mods,
@@ -68,7 +70,8 @@ export function buildModifications(
       variant.subheadline,
       timeline["1"],
       workerDomain,
-      size
+      size,
+      parsed
     );
   }
 
@@ -89,7 +92,8 @@ export function buildModifications(
         headerText,
         timing,
         workerDomain,
-        size
+        size,
+        parsed
       );
     }
     if (screen.body) {
@@ -101,7 +105,8 @@ export function buildModifications(
         screen.body,
         timing,
         workerDomain,
-        size
+        size,
+        parsed
       );
     }
     if (screen.disclaimer) {
@@ -113,7 +118,8 @@ export function buildModifications(
         screen.disclaimer,
         timing,
         workerDomain,
-        size
+        size,
+        parsed
       );
     }
 
@@ -139,7 +145,8 @@ export function buildModifications(
           "Breethe",
           timing,
           workerDomain,
-          size
+          size,
+          parsed
         );
       }
 
@@ -349,7 +356,8 @@ function applyTextLayerModifications(
   text: string,
   timing: ScreenTiming,
   workerDomain: string,
-  size: string
+  size: string,
+  parsed?: ParsedBrief
 ): void {
   void addedElements;
   void timing;
@@ -363,6 +371,31 @@ function applyTextLayerModifications(
   }
 
   mods[`${elementName}.text`] = strippedText;
+  applyTextLayerOverrides(mods, elementName, parsed?.textOverrides?.[elementName]);
+}
+
+function applyTextLayerOverrides(
+  mods: Record<string, ModificationValue>,
+  elementName: string,
+  override: TextLayerOverride | undefined
+): void {
+  if (!override) return;
+
+  if (Number.isFinite(override.fontSize) && Number(override.fontSize) > 0) {
+    mods[`${elementName}.font_size`] = Number(override.fontSize);
+  }
+
+  if (typeof override.color === "string" && override.color.trim()) {
+    mods[`${elementName}.fill_color`] = override.color.trim();
+  }
+
+  if (typeof override.x === "string" && override.x.trim()) {
+    mods[`${elementName}.x`] = override.x.trim();
+  }
+
+  if (typeof override.y === "string" && override.y.trim()) {
+    mods[`${elementName}.y`] = override.y.trim();
+  }
 }
 
 function createDynamicImageElement(

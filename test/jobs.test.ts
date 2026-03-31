@@ -145,6 +145,28 @@ describe("buildModifications", () => {
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
   });
 
+  it("applies local text overrides to creatomate modifications", () => {
+    const overriddenParsed: ParsedBrief = {
+      ...parsed,
+      textOverrides: {
+        S3_Header: {
+          fontSize: 36,
+          color: "#ffcc00",
+          x: "18%",
+          y: "20%",
+        },
+      },
+    };
+
+    const mods = buildModifications(overriddenParsed, 0, "bg/PinkTrees.mp4", r2Url);
+
+    expect(mods["S3_Header.text"]).toBe("Stress changes breathing");
+    expect(mods["S3_Header.font_size"]).toBe(36);
+    expect(mods["S3_Header.fill_color"]).toBe("#ffcc00");
+    expect(mods["S3_Header.x"]).toBe("18%");
+    expect(mods["S3_Header.y"]).toBe("20%");
+  });
+
   it("handles empty background gracefully", () => {
     const mods = buildModifications(parsed, 0, "", r2Url);
     expect(mods["Background.source"]).toBeUndefined();
