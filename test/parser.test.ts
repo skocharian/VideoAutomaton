@@ -215,6 +215,20 @@ It switches you to **shallow breathing** — the biological signal for danger. (
     });
   });
 
+  it("recognizes a fully bolded screen heading with inline end-card title", () => {
+    const brief = `
+**Screen 11: End Card (motion tagline)**
+
+<<Breethe logo>>
+Feel better. Sleep better.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["11"]).toEqual({
+      body: "Feel better. Sleep better.",
+    });
+  });
+
   it("treats two-line screen blocks as header + body", () => {
     const brief = `
 Screen 4:

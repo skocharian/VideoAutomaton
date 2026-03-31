@@ -101,12 +101,21 @@ function normalizeStructuralHeadings(brief: string): string {
 
 function normalizeStructuralHeadingLine(line: string): string {
   const headingCore = String.raw`(?:V\d+|(?:Screen|S)\s*\d+(?:\s*\([^)]*\))?)`;
+  const structuralHeadingLine = String.raw`(?:V\d+|(?:Screen|S)\s*\d+)\b[^\n]*`;
+  const markdownWholeLine = new RegExp(
+    String.raw`^(\s*)(\*\*|__)\s*(${structuralHeadingLine})\s*\2(\s*)$`,
+    "i"
+  );
   const markdownWrapped = new RegExp(
     String.raw`^(\s*)(\*\*|__)\s*(${headingCore}\s*[:\-–]?)\s*\2(\s*)(.*)$`,
     "i"
   );
   const markdownColonOutside = new RegExp(
     String.raw`^(\s*)(\*\*|__)\s*(${headingCore})\s*\2(\s*[:\-–]\s*)(.*)$`,
+    "i"
+  );
+  const htmlWholeLine = new RegExp(
+    String.raw`^(\s*)<\s*(?:strong|b)\s*>\s*(${structuralHeadingLine})\s*<\s*\/\s*(?:strong|b)\s*>(\s*)$`,
     "i"
   );
   const htmlWrapped = new RegExp(
@@ -119,8 +128,10 @@ function normalizeStructuralHeadingLine(line: string): string {
   );
 
   return line
+    .replace(markdownWholeLine, "$1$3$4")
     .replace(markdownWrapped, "$1$3$4$5")
     .replace(markdownColonOutside, "$1$3$4$5")
+    .replace(htmlWholeLine, "$1$2$3")
     .replace(htmlWrapped, "$1$2$3$4")
     .replace(htmlColonOutside, "$1$2$3$4");
 }
