@@ -9,9 +9,12 @@ import type {
 } from "./types";
 import { computeTotalDuration } from "./parser";
 import {
+  encodeRichTextPayload,
+  hasHighlightedSegments,
   stripRichTextMarkup,
 } from "./rich-text";
 import {
+  getTemplateDimensions,
   getTemplateElementLayout,
 } from "./template-layout";
 
@@ -359,10 +362,6 @@ function applyTextLayerModifications(
   size: string,
   parsed?: ParsedBrief
 ): void {
-  void addedElements;
-  void timing;
-  void workerDomain;
-  void size;
   const strippedText = stripRichTextMarkup(text).trim();
 
   if (!strippedText) {
@@ -372,6 +371,20 @@ function applyTextLayerModifications(
 
   mods[`${elementName}.text`] = strippedText;
   applyTextLayerOverrides(mods, elementName, parsed?.textOverrides?.[elementName]);
+
+  if (workerDomain && hasHighlightedSegments(text)) {
+    const overlay = createHighlightOverlayElement(
+      elementName,
+      text,
+      timing,
+      workerDomain,
+      size,
+      parsed?.textOverrides?.[elementName]
+    );
+    if (overlay) {
+      addedElements.push(overlay);
+    }
+  }
 }
 
 function applyTextLayerOverrides(
@@ -430,6 +443,82 @@ function createDynamicImageElement(
   };
 }
 
+function createHighlightOverlayElement(
+  elementName: string,
+  text: string,
+  timing: ScreenTiming,
+  workerDomain: string,
+  size: string,
+  override: TextLayerOverride | undefined
+): ModificationValue | null {
+  const layout = getTemplateElementLayout(elementName, size);
+  const dimensions = getTemplateDimensions(size);
+  if (!layout) return null;
+
+  const width = toPixelDimension(layout.width, dimensions.width);
+  const height = toPixelDimension(layout.height, dimensions.height);
+  if (!width || !height) return null;
+
+  const payload = encodeRichTextPayload({
+    text,
+    width,
+    height,
+    align: normalizeAlign(layout.x_alignment),
+    fontFamily:
+      typeof layout.font_family === "string"
+        ? `${layout.font_family}, Open Sans, Arial, sans-serif`
+        : "Open Sans, Arial, sans-serif",
+    fontSize:
+      Number.isFinite(override?.fontSize) && Number(override?.fontSize) > 0
+        ? Number(override?.fontSize)
+        : typeof layout.font_size === "number"
+          ? layout.font_size
+          : Number.parseFloat(String(layout.font_size)) || 28,
+    fontWeight:
+      typeof layout.font_weight === "number" || typeof layout.font_weight === "string"
+        ? layout.font_weight
+        : 600,
+    lineHeight:
+      typeof layout.line_height === "number" || typeof layout.line_height === "string"
+        ? layout.line_height
+        : "100%",
+    emphasisColor: "#8ff3f6",
+    shadowColor:
+      typeof layout.shadow_color === "string" ? layout.shadow_color : undefined,
+    shadowBlur:
+      typeof layout.shadow_blur === "number" || typeof layout.shadow_blur === "string"
+        ? layout.shadow_blur
+        : undefined,
+    shadowY:
+      typeof layout.shadow_y === "number" || typeof layout.shadow_y === "string"
+        ? layout.shadow_y
+        : undefined,
+  });
+
+  const overlay = createDynamicImageElement(
+    elementName,
+    `${workerDomain}/rich-text.svg?payload=${payload}`,
+    timing,
+    size
+  );
+
+  if (!overlay || typeof overlay !== "object" || Array.isArray(overlay)) {
+    return overlay;
+  }
+
+  return {
+    ...overlay,
+    name: `${elementName}_Highlight_Dynamic`,
+    track: Number(layout.track ?? 10) + 20,
+    ...(typeof override?.x === "string" && override.x.trim()
+      ? { x: override.x.trim() }
+      : {}),
+    ...(typeof override?.y === "string" && override.y.trim()
+      ? { y: override.y.trim() }
+      : {}),
+  };
+}
+
 function pickLayoutValue(
   value: unknown,
   fallback: string | number
@@ -439,6 +528,36 @@ function pickLayoutValue(
   }
 
   return fallback;
+}
+
+function normalizeAlign(value: unknown): "left" | "center" {
+  if (typeof value !== "string") return "left";
+  return value.trim() === "50%" ? "center" : "left";
+}
+
+function toPixelDimension(
+  value: unknown,
+  total: number
+): number {
+  if (typeof value === "number") {
+    return Math.max(1, Math.round(value));
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.endsWith("%")) {
+      return Math.max(1, Math.round((total * Number.parseFloat(trimmed)) / 100));
+    }
+    if (trimmed.endsWith("px")) {
+      return Math.max(1, Math.round(Number.parseFloat(trimmed)));
+    }
+    const parsed = Number.parseFloat(trimmed);
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.round(parsed));
+    }
+  }
+
+  return 0;
 }
 
 function pickOptionalLayoutValue(

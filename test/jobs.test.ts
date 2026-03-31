@@ -126,7 +126,7 @@ describe("buildModifications", () => {
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
   });
 
-  it("falls back to plain text for rich markup even when a worker domain is available", () => {
+  it("adds a highlight overlay for marked phrases when a worker domain is available", () => {
     const richParsed = {
       ...parsed,
       screens: {
@@ -143,6 +143,12 @@ describe("buildModifications", () => {
     );
 
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
+    const dynamicElements = mods["elements.add"] as Array<Record<string, unknown>>;
+    const highlightOverlay = dynamicElements.find(
+      (element) => element.name === "S2_Body_Highlight_Dynamic"
+    );
+    expect(highlightOverlay).toBeDefined();
+    expect(String(highlightOverlay?.source || "")).toContain("/rich-text.svg?payload=");
   });
 
   it("applies local text overrides to creatomate modifications", () => {

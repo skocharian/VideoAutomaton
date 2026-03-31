@@ -353,7 +353,7 @@
     }
 
     .preview-text-layer {
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      font-family: "Open Sans", "Avenir Next", "Segoe UI", sans-serif;
       white-space: pre-wrap;
       word-break: break-word;
       text-shadow: 0 2px 12px rgba(7, 26, 56, 0.72);
@@ -361,6 +361,7 @@
 
     .preview-text-layer strong {
       font-weight: 800;
+      color: var(--accent);
     }
 
     .preview-image-layer img {
@@ -1526,38 +1527,38 @@
       if (screenNumber <= 8) {
         if (block === "Header") {
           return {
-            x: is45 ? 12 : 13,
-            y: is45 ? 14 : 15,
-            width: is45 ? 74 : 67,
+            x: is45 ? 10.5 : 10,
+            y: is45 ? 11.8 : 12.8,
+            width: is45 ? 79 : 76,
             fontSize: getDefaultPreviewFontSize(elementName),
             color: "#ffffff",
             weight: 700,
-            lineHeight: 0.98,
+            lineHeight: 1.02,
             align: "left",
           };
         }
 
         if (block === "Body") {
           return {
-            x: is45 ? 12 : 13,
-            y: is45 ? 25 : 24,
-            width: is45 ? 74 : 67,
+            x: is45 ? 10.5 : 10,
+            y: is45 ? 21.5 : 22.1,
+            width: is45 ? 80 : 78,
             fontSize: getDefaultPreviewFontSize(elementName),
             color: "#ffffff",
             weight: 600,
-            lineHeight: 1,
+            lineHeight: 1.02,
             align: "left",
           };
         }
 
         return {
-          x: is45 ? 12 : 13,
-          y: is45 ? 86 : 85,
-          width: is45 ? 74 : 68,
+          x: is45 ? 10.5 : 10,
+          y: is45 ? 78.5 : 81.5,
+          width: is45 ? 80 : 78,
           fontSize: getDefaultPreviewFontSize(elementName),
           color: "#eefcff",
           weight: 400,
-          lineHeight: 1.05,
+          lineHeight: 1.1,
           align: "left",
         };
       }
@@ -1615,22 +1616,22 @@
 
     function getDefaultPreviewFontSize(elementName) {
       const fontSizes = {
-        S1_Header: 34,
-        S2_Header: 30,
-        S3_Header: 31,
-        S4_Header: 31,
-        S5_Header: 31,
-        S6_Header: 27,
-        S7_Header: 31,
-        S8_Header: 31,
-        S1_Body: 27,
-        S2_Body: 29,
-        S3_Body: 28,
-        S4_Body: 28,
-        S5_Body: 28,
-        S6_Body: 27,
-        S7_Body: 24,
-        S8_Body: 28,
+        S1_Header: 35,
+        S2_Header: 31,
+        S3_Header: 32,
+        S4_Header: 32,
+        S5_Header: 32,
+        S6_Header: 28,
+        S7_Header: 32,
+        S8_Header: 32,
+        S1_Body: 28,
+        S2_Body: 30,
+        S3_Body: 29,
+        S4_Body: 29,
+        S5_Body: 29,
+        S6_Body: 28,
+        S7_Body: 25,
+        S8_Body: 29,
         S2_Disclaimer: 13,
         S3_Disclaimer: 13,
         S4_Disclaimer: 13,

@@ -8,6 +8,7 @@ export interface RichTextPayload {
   fontWeight?: number | string;
   lineHeight?: number | string;
   color?: string;
+  emphasisColor?: string;
   shadowColor?: string;
   shadowBlur?: number | string;
   shadowY?: number | string;
@@ -45,6 +46,11 @@ export function renderRichTextHtml(text: string | undefined): string {
     .join("");
 }
 
+export function hasHighlightedSegments(text: string | undefined): boolean {
+  if (!text) return false;
+  return tokenizeRichText(text).some((segment) => segment.bold && segment.text.trim());
+}
+
 export function encodeRichTextPayload(payload: RichTextPayload): string {
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
   let binary = "";
@@ -67,32 +73,51 @@ export function buildRichTextSvg(payload: RichTextPayload): string {
   const width = Math.max(1, Math.round(payload.width));
   const height = Math.max(1, Math.round(payload.height));
   const align = payload.align ?? "left";
-  const fontFamily = payload.fontFamily ?? "Aileron, Arial, sans-serif";
+  const fontFamily = payload.fontFamily ?? "Open Sans, Aileron, Arial, sans-serif";
   const fontSize = payload.fontSize ?? 28;
   const fontWeight = payload.fontWeight ?? 600;
-  const lineHeight =
-    typeof payload.lineHeight === "number"
-      ? String(payload.lineHeight)
-      : payload.lineHeight ?? "100%";
-  const color = payload.color ?? "#ffffff";
-  const textShadow = buildTextShadow(payload, width, height);
-  const html = renderRichTextHtml(payload.text);
+  const emphasisColor = payload.emphasisColor ?? "#8ff3f6";
+  const lineHeight = resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize);
+  const shadowFilterId = payload.shadowColor ? "shadow" : "";
+  const lines = layoutRichTextLines(payload.text, width, fontSize, fontWeight);
+  const textElements = [];
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const startX = align === "center" ? Math.max(0, (width - line.width) / 2) : 0;
+    let cursorX = startX;
+    const baselineY = Math.max(fontSize, fontSize * 0.82 + lineIndex * lineHeight);
+
+    for (const token of line.tokens) {
+      const tokenWidth = measureTextWidth(token.text, fontSize, token.bold ? 700 : fontWeight);
+      if (token.bold && token.text.trim()) {
+        textElements.push(
+          `<text x="${roundSvg(cursorX)}" y="${roundSvg(baselineY)}" fill="${escapeXml(
+            emphasisColor
+          )}" font-family="${escapeXml(fontFamily)}" font-size="${roundSvg(
+            fontSize
+          )}" font-weight="700"${shadowFilterId ? ` filter="url(#${shadowFilterId})"` : ""} xml:space="preserve">${escapeXml(
+            token.text
+          )}</text>`
+        );
+      }
+      cursorX += tokenWidth;
+    }
+  }
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-    '<foreignObject width="100%" height="100%">',
-    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;display:flex;align-items:flex-start;justify-content:${
-      align === "center" ? "center" : "flex-start"
-    };overflow:hidden;">`,
-    `<div style="width:100%;font-family:${escapeHtmlAttribute(
-      fontFamily
-    )};font-size:${fontSize}px;font-weight:${fontWeight};line-height:${escapeHtmlAttribute(
-      lineHeight
-    )};color:${color};text-align:${align};white-space:pre-wrap;word-break:break-word;${
-      textShadow ? `text-shadow:${textShadow};` : ""
-    }">${html}</div>`,
-    "</div>",
-    "</foreignObject>",
+    payload.shadowColor
+      ? buildShadowDefinition(
+          shadowFilterId,
+          payload.shadowColor,
+          payload.shadowBlur ?? 0,
+          payload.shadowY ?? 0,
+          width,
+          height
+        )
+      : "",
+    ...textElements,
     "</svg>",
   ].join("");
 }
@@ -165,6 +190,200 @@ function buildTextShadow(
   return `0px ${offsetY}px ${blur}px ${payload.shadowColor}`;
 }
 
+type RichTextToken = {
+  text: string;
+  bold: boolean;
+};
+
+type RichTextLine = {
+  tokens: RichTextToken[];
+  width: number;
+};
+
+function layoutRichTextLines(
+  text: string,
+  maxWidth: number,
+  fontSize: number,
+  fontWeight: number | string
+): RichTextLine[] {
+  const lines: RichTextLine[] = [];
+  let currentTokens: RichTextToken[] = [];
+  let currentWidth = 0;
+
+  for (const segment of tokenizeRichText(text)) {
+    const tokens = segment.text.match(/\n|[ \t]+|[^\s\n]+/g) ?? [];
+
+    for (const tokenText of tokens) {
+      if (tokenText === "\n") {
+        flushLine();
+        continue;
+      }
+
+      const token: RichTextToken = { text: tokenText, bold: segment.bold };
+      const isWhitespace = /^[ \t]+$/.test(token.text);
+      const tokenWeight = token.bold ? 700 : fontWeight;
+      let tokenWidth = measureTextWidth(token.text, fontSize, tokenWeight);
+
+      if (!currentTokens.length && isWhitespace) {
+        continue;
+      }
+
+      if (!isWhitespace && currentWidth > 0 && currentWidth + tokenWidth > maxWidth) {
+        flushLine();
+      }
+
+      if (!isWhitespace && tokenWidth > maxWidth) {
+        const pieces = splitTokenToFit(token, maxWidth, fontSize, tokenWeight);
+        for (let index = 0; index < pieces.length; index += 1) {
+          const piece = pieces[index];
+          const pieceWidth = measureTextWidth(piece.text, fontSize, tokenWeight);
+          if (currentWidth > 0 && currentWidth + pieceWidth > maxWidth) {
+            flushLine();
+          }
+          currentTokens.push(piece);
+          currentWidth += pieceWidth;
+          if (index < pieces.length - 1) {
+            flushLine();
+          }
+        }
+        continue;
+      }
+
+      if (!currentTokens.length && isWhitespace) {
+        continue;
+      }
+
+      currentTokens.push(token);
+      currentWidth += tokenWidth;
+    }
+  }
+
+  flushLine();
+
+  return lines.length > 0 ? lines : [{ tokens: [], width: 0 }];
+
+  function flushLine() {
+    while (currentTokens.length && /^[ \t]+$/.test(currentTokens[currentTokens.length - 1].text)) {
+      const trailing = currentTokens.pop();
+      if (trailing) {
+        currentWidth -= measureTextWidth(trailing.text, fontSize, trailing.bold ? 700 : fontWeight);
+      }
+    }
+
+    lines.push({
+      tokens: currentTokens,
+      width: Math.max(0, currentWidth),
+    });
+    currentTokens = [];
+    currentWidth = 0;
+  }
+}
+
+function splitTokenToFit(
+  token: RichTextToken,
+  maxWidth: number,
+  fontSize: number,
+  fontWeight: number | string
+): RichTextToken[] {
+  const pieces: RichTextToken[] = [];
+  let buffer = "";
+
+  for (const char of token.text) {
+    const candidate = buffer + char;
+    if (buffer && measureTextWidth(candidate, fontSize, fontWeight) > maxWidth) {
+      pieces.push({ text: buffer, bold: token.bold });
+      buffer = char;
+      continue;
+    }
+    buffer = candidate;
+  }
+
+  if (buffer) {
+    pieces.push({ text: buffer, bold: token.bold });
+  }
+
+  return pieces;
+}
+
+function measureTextWidth(
+  text: string,
+  fontSize: number,
+  fontWeight: number | string
+): number {
+  let width = 0;
+  const weightMultiplier =
+    Number(fontWeight) >= 700 || String(fontWeight).toLowerCase() === "bold"
+      ? 1.02
+      : 1;
+
+  for (const char of text) {
+    width += estimateCharacterWidth(char);
+  }
+
+  return width * fontSize * weightMultiplier;
+}
+
+function estimateCharacterWidth(char: string): number {
+  if (char === " ") return 0.33;
+  if (char === "\t") return 1.32;
+  if ("ilIjtfr".includes(char)) return 0.31;
+  if ("mwMW@#%&".includes(char)) return 0.88;
+  if ("ABCDEFGHKNOPQRSUVXYZ".includes(char)) return 0.67;
+  if ("JLT".includes(char)) return 0.5;
+  if ("0123456789".includes(char)) return 0.58;
+  if (",.;:'`".includes(char)) return 0.22;
+  if ("!?".includes(char)) return 0.3;
+  if ("-–—_".includes(char)) return 0.35;
+  if ("()[]{}".includes(char)) return 0.3;
+  if ("\"".includes(char)) return 0.28;
+  if ("/\\|".includes(char)) return 0.32;
+  return 0.56;
+}
+
+function resolveLineHeightPixels(
+  value: string | number,
+  fontSize: number
+): number {
+  if (typeof value === "number") {
+    return value <= 4 ? fontSize * value : value;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.endsWith("%")) {
+    return (fontSize * Number.parseFloat(trimmed)) / 100;
+  }
+
+  const parsed = Number.parseFloat(trimmed);
+  if (!Number.isFinite(parsed)) return fontSize;
+  return parsed <= 4 ? fontSize * parsed : parsed;
+}
+
+function buildShadowDefinition(
+  id: string,
+  color: string,
+  blur: number | string,
+  offsetY: number | string,
+  width: number,
+  height: number
+): string {
+  const blurPx = Math.max(0, toPixels(blur, width, height));
+  const offsetYPx = toPixels(offsetY, width, height);
+
+  return [
+    "<defs>",
+    `<filter id="${id}" x="-20%" y="-20%" width="140%" height="140%">`,
+    `<feDropShadow dx="0" dy="${roundSvg(offsetYPx)}" stdDeviation="${roundSvg(
+      blurPx / 2
+    )}" flood-color="${escapeXml(color)}" flood-opacity="1"/>`,
+    "</filter>",
+    "</defs>",
+  ].join("");
+}
+
+function roundSvg(value: number): string {
+  return Number(value.toFixed(2)).toString();
+}
+
 function toPixels(
   value: string | number,
   width: number,
@@ -198,4 +417,13 @@ function escapeHtml(value: string): string {
 
 function escapeHtmlAttribute(value: string): string {
   return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
