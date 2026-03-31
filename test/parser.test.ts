@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseBrief, computeVideoCount } from "../src/parser";
+import { parseBrief, computeTotalDuration, computeVideoCount } from "../src/parser";
 
 describe("parseBrief", () => {
   const baseBriefReq = {
@@ -7,6 +7,7 @@ describe("parseBrief", () => {
     backgrounds: ["bg/PinkTrees.mp4"],
     sizes: ["9:16", "4:5"],
     audio: "audio/breethe.mp3",
+    accolade: "accolades/must-have-app.png",
     badge: "badges/ios.png",
     logo: "logos/breethe.png",
   };
@@ -52,6 +53,7 @@ V4: 3 minutes to change your nervous system / Try it free
       subheadline: "And it's keeping you stressed",
     });
     expect(result.variants[3].id).toBe("V4");
+    expect(result.screenDurations["1"]).toBe(3);
   });
 
   it("extracts variants with pipe separator", () => {
@@ -129,6 +131,54 @@ Body: Guided breathwork sessions
     expect(result.screens["2"].body).toContain("breathing triggers");
     expect(result.screens["3"]).toBeDefined();
     expect(result.screens["3"].header).toBe("Stress changes breathing");
+    expect(result.screenDurations["2"]).toBe(3);
+  });
+
+  it("parses explicit screen durations from headings and labels", () => {
+    const brief = `
+Screen 1 (2.5s):
+V1: Headline one
+Sub one
+
+Screen 2:
+Duration: 4s
+Header: The science is clear
+Body: Your breathing triggers how your nervous system reacts.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screenDurations["1"]).toBe(2.5);
+    expect(result.screenDurations["2"]).toBe(4);
+  });
+
+  it("applies a global default screen duration when specified", () => {
+    const brief = `
+Each slide is 2.25 seconds
+
+V1: Headline one
+Sub one
+
+Screen 2:
+Body: Keep breathing
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screenDurations["1"]).toBe(2.25);
+    expect(result.screenDurations["2"]).toBe(2.25);
+  });
+
+  it("preserves bold markup in parsed screen text", () => {
+    const brief = `
+Screen 2:
+If you want to **block overthinking**
+listen to this audio.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screens["2"]).toEqual({
+      header: "If you want to **block overthinking**",
+      body: "listen to this audio.",
+    });
   });
 
   it("treats two-line screen blocks as header + body", () => {
@@ -400,6 +450,8 @@ Feel better. Sleep better.
     expect(result.screens["11"]).toEqual({
       body: "Feel better. Sleep better.",
     });
+    expect(result.screenDurations["1"]).toBe(3);
+    expect(result.screenDurations["11"]).toBe(3);
   });
 
   it("handles dynamic number of screens", () => {
@@ -421,10 +473,11 @@ Screen 6: Final
     expect(result.sizes).toEqual(["9:16", "4:5"]);
   });
 
-  it("passes through backgrounds, audio, badge, and logo", () => {
+  it("passes through backgrounds, audio, accolade, badge, and logo", () => {
     const result = parseBrief({ ...baseBriefReq, brief: "AX0320" });
     expect(result.backgrounds).toEqual(["bg/PinkTrees.mp4"]);
     expect(result.audio).toBe("audio/breethe.mp3");
+    expect(result.accolade).toBe("accolades/must-have-app.png");
     expect(result.badge).toBe("badges/ios.png");
     expect(result.logo).toBe("logos/breethe.png");
   });
@@ -444,6 +497,25 @@ Screen 6: Final
   });
 });
 
+describe("computeTotalDuration", () => {
+  it("adds all slide durations together", () => {
+    const total = computeTotalDuration({
+      campaign_id: "AX0322",
+      variants: [{ id: "V1", headline: "H1", subheadline: "S1" }],
+      screens: { "2": { body: "Body" }, "3": { body: "Body" } },
+      screenDurations: { "1": 2.5, "2": 3, "3": 4.25 },
+      backgrounds: ["bg1.mp4"],
+      sizes: ["9:16"],
+      audio: "",
+      accolade: "",
+      badge: "",
+      logo: "",
+    });
+
+    expect(total).toBe(9.75);
+  });
+});
+
 describe("computeVideoCount", () => {
   it("computes variants x backgrounds x sizes", () => {
     const count = computeVideoCount({
@@ -453,9 +525,11 @@ describe("computeVideoCount", () => {
         { id: "V2", headline: "H2", subheadline: "S2" },
       ],
       screens: {},
+      screenDurations: {},
       backgrounds: ["bg1.mp4", "bg2.mp4", "bg3.mp4"],
       sizes: ["9:16", "4:5"],
       audio: "",
+      accolade: "",
       badge: "",
       logo: "",
     });
@@ -467,9 +541,11 @@ describe("computeVideoCount", () => {
       campaign_id: "X",
       variants: [],
       screens: {},
+      screenDurations: {},
       backgrounds: [],
       sizes: ["9:16"],
       audio: "",
+      accolade: "",
       badge: "",
       logo: "",
     });

@@ -1,58 +1,189 @@
 import type {
   Env,
+  ModificationValue,
   ParsedBrief,
   RenderJob,
   CampaignSummary,
   CreatomateRenderRequest,
 } from "./types";
+import { computeTotalDuration } from "./parser";
+import {
+  encodeRichTextPayload,
+  hasRichTextMarkup,
+  stripRichTextMarkup,
+} from "./rich-text";
+import {
+  getTemplateElementLayout,
+  TEMPLATE_9X16_HEIGHT,
+  TEMPLATE_9X16_WIDTH,
+} from "./template-layout";
 
 /**
  * Build Creatomate modifications object from parsed brief.
- * Maps to template element names: S{n}_Header, S{n}_Body, S{n}_Disclaimer, Background, S11_Logo.
+ * Maps to template element names:
+ * S{n}_Header, S{n}_Body, S{n}_Disclaimer, Background.
+ * Image/audio extras are injected dynamically using `elements.add`.
  * Screen 1 header/body come from the variant; all others from screens map.
  */
 export function buildModifications(
   parsed: ParsedBrief,
   variantIndex: number,
   background: string,
-  r2PublicUrl: string
-): Record<string, string> {
+  r2PublicUrl: string,
+  workerDomain = ""
+): Record<string, ModificationValue> {
   const variant = parsed.variants[variantIndex];
-  const mods: Record<string, string> = {};
+  const mods: Record<string, ModificationValue> = {};
+  const addedElements: ModificationValue[] = [];
+  const timeline = buildScreenTimeline(parsed);
+  const totalDuration = computeTotalDuration(parsed);
+
+  initializeDynamicTextLayers(mods);
+
+  mods["duration"] = totalDuration;
 
   // Background
   if (background) {
     mods["Background.source"] = `${r2PublicUrl}/${background}`;
   }
-
-  if (parsed.logo) {
-    mods["S11_Logo.source"] = `${r2PublicUrl}/${parsed.logo}`;
+  mods["Background.duration"] = totalDuration;
+  if (parsed.audio) {
+    mods["Background.volume"] = "0%";
   }
 
   // Screen 1 — from variant headline/subheadline
-  if (variant) {
-    mods["S1_Header.text"] = variant.headline;
-    mods["S1_Body.text"] = variant.subheadline;
+  if (variant && timeline["1"]) {
+    setElementTiming(mods, "S1_Header", timeline["1"]);
+    setElementTiming(mods, "S1_Body", timeline["1"]);
+    applyTextLayerModifications(
+      mods,
+      addedElements,
+      "S1_Header",
+      variant.headline,
+      timeline["1"],
+      workerDomain
+    );
+    applyTextLayerModifications(
+      mods,
+      addedElements,
+      "S1_Body",
+      variant.subheadline,
+      timeline["1"],
+      workerDomain
+    );
   }
 
   // Remaining screens — dynamic, based on whatever the brief contained
   for (const [num, screen] of Object.entries(parsed.screens)) {
     if (num === "1") continue; // S1 handled by variant above
+    const timing = timeline[num];
+    if (!timing) continue;
 
-    if (screen.header) {
-      mods[`S${num}_Header.text`] = screen.header;
+    const headerText = num === "11" ? screen.header ?? "Breethe" : screen.header;
+
+    if (headerText && !(num === "9" && parsed.accolade)) {
+      setElementTiming(mods, `S${num}_Header`, timing);
+      applyTextLayerModifications(
+        mods,
+        addedElements,
+        `S${num}_Header`,
+        headerText,
+        timing,
+        workerDomain
+      );
     }
     if (screen.body) {
-      mods[`S${num}_Body.text`] = screen.body;
+      setElementTiming(mods, `S${num}_Body`, timing);
+      applyTextLayerModifications(
+        mods,
+        addedElements,
+        `S${num}_Body`,
+        screen.body,
+        timing,
+        workerDomain
+      );
     }
     if (screen.disclaimer) {
-      mods[`S${num}_Disclaimer.text`] = screen.disclaimer;
+      setElementTiming(mods, `S${num}_Disclaimer`, timing);
+      applyTextLayerModifications(
+        mods,
+        addedElements,
+        `S${num}_Disclaimer`,
+        screen.disclaimer,
+        timing,
+        workerDomain
+      );
+    }
+
+    if (num === "9" && parsed.accolade) {
+      const accoladeElement = createDynamicImageElement(
+        "S9_Accolade",
+        `${r2PublicUrl}/${parsed.accolade}`,
+        timing
+      );
+      if (accoladeElement) {
+        addedElements.push(accoladeElement);
+      }
+    }
+
+    if (num === "11") {
+      if (!screen.header) {
+        setElementTiming(mods, "S11_Header", timing);
+        applyTextLayerModifications(
+          mods,
+          addedElements,
+          "S11_Header",
+          "Breethe",
+          timing,
+          workerDomain
+        );
+      }
+
+      if (parsed.logo) {
+        const logoElement = createDynamicImageElement(
+          "S11_Logo",
+          `${r2PublicUrl}/${parsed.logo}`,
+          timing
+        );
+        if (logoElement) {
+          addedElements.push(logoElement);
+        }
+      }
+
+      if (parsed.badge) {
+        const badgeElement = createDynamicImageElement(
+          "S11_Badge",
+          `${r2PublicUrl}/${parsed.badge}`,
+          timing
+        );
+        if (badgeElement) {
+          addedElements.push(badgeElement);
+        }
+      }
     }
   }
 
   // Novelty clip (first available)
   if (parsed.novelty && parsed.novelty.length > 0) {
     mods["NoveltyClip.source"] = `${r2PublicUrl}/${parsed.novelty[0]}`;
+    mods["NoveltyClip.time"] = 0;
+    mods["NoveltyClip.duration"] = totalDuration;
+    mods["NoveltyClip.volume"] = "0%";
+  }
+
+  if (parsed.audio) {
+    addedElements.push({
+      name: "Music_Dynamic",
+      type: "audio",
+      track: 90,
+      time: 0,
+      duration: totalDuration,
+      source: `${r2PublicUrl}/${parsed.audio}`,
+    });
+  }
+
+  if (addedElements.length > 0) {
+    mods["elements.add"] = addedElements;
   }
 
   return mods;
@@ -98,7 +229,8 @@ export async function createRenderJobs(
           parsed,
           variantIdx,
           bg,
-          r2PublicUrl
+          r2PublicUrl,
+          workerDomain
         );
         const templateId = getTemplateId(size, env);
         const metadata = JSON.stringify({
@@ -152,6 +284,219 @@ export async function createRenderJobs(
   );
 
   return { jobs, errors };
+}
+
+type ScreenTiming = {
+  time: number;
+  duration: number;
+};
+
+function buildScreenTimeline(parsed: ParsedBrief): Record<string, ScreenTiming> {
+  const orderedScreens = [
+    ...(parsed.variants.length > 0 ? ["1"] : []),
+    ...Object.keys(parsed.screens)
+      .filter((num) => num !== "1")
+      .sort((a, b) => Number(a) - Number(b)),
+  ];
+
+  const timeline: Record<string, ScreenTiming> = {};
+  let cursor = 0;
+
+  for (const num of orderedScreens) {
+    const duration = parsed.screenDurations[num] ?? 3;
+    timeline[num] = {
+      time: Number(cursor.toFixed(2)),
+      duration,
+    };
+    cursor += duration;
+  }
+
+  return timeline;
+}
+
+function initializeDynamicTextLayers(
+  mods: Record<string, ModificationValue>
+): void {
+  for (let index = 1; index <= 11; index += 1) {
+    mods[`S${index}_Header.text`] = "";
+    mods[`S${index}_Body.text`] = "";
+    if (index >= 2) {
+      mods[`S${index}_Disclaimer.text`] = "";
+    }
+  }
+}
+
+function setElementTiming(
+  mods: Record<string, ModificationValue>,
+  elementName: string,
+  timing: ScreenTiming
+): void {
+  mods[`${elementName}.time`] = timing.time;
+  mods[`${elementName}.duration`] = timing.duration;
+}
+
+function applyTextLayerModifications(
+  mods: Record<string, ModificationValue>,
+  addedElements: ModificationValue[],
+  elementName: string,
+  text: string,
+  timing: ScreenTiming,
+  workerDomain: string
+): void {
+  const strippedText = stripRichTextMarkup(text).trim();
+
+  if (!strippedText) {
+    mods[`${elementName}.text`] = "";
+    return;
+  }
+
+  if (workerDomain && hasRichTextMarkup(text)) {
+    mods[`${elementName}.text`] = "";
+    const richElement = createRichTextElement(
+      elementName,
+      text,
+      timing,
+      workerDomain
+    );
+    if (richElement) {
+      addedElements.push(richElement);
+      return;
+    }
+  }
+
+  mods[`${elementName}.text`] = strippedText;
+}
+
+function createRichTextElement(
+  elementName: string,
+  text: string,
+  timing: ScreenTiming,
+  workerDomain: string
+): ModificationValue | null {
+  const layout = getTemplateElementLayout(elementName);
+  if (!layout) return null;
+
+  const width = toPixels(layout.width, TEMPLATE_9X16_WIDTH);
+  const height = toPixels(layout.height, TEMPLATE_9X16_HEIGHT);
+  const payload = {
+    text,
+    width,
+    height,
+    align:
+      String(layout.x_alignment ?? "0%").includes("50")
+        ? "center"
+        : "left",
+    fontFamily: String(layout.font_family ?? "Aileron, Arial, sans-serif"),
+    fontSize: Number(layout.font_size ?? 28),
+    fontWeight: String(layout.font_weight ?? 600),
+    lineHeight:
+      typeof layout.line_height === "string" || typeof layout.line_height === "number"
+        ? layout.line_height
+        : "100%",
+    color: String(layout.fill_color ?? "#ffffff"),
+    shadowColor:
+      typeof layout.shadow_color === "string" ? layout.shadow_color : undefined,
+    shadowBlur:
+      typeof layout.shadow_blur === "string" || typeof layout.shadow_blur === "number"
+        ? layout.shadow_blur
+        : undefined,
+    shadowY:
+      typeof layout.shadow_y === "string" || typeof layout.shadow_y === "number"
+        ? layout.shadow_y
+        : undefined,
+  } as const;
+
+  const source = `${workerDomain}/rich-text.svg?payload=${encodeRichTextPayload(payload)}`;
+
+  return {
+    name: `${elementName}_Rich_Dynamic`,
+    type: "image",
+    track: Number(layout.track ?? 10) + 20,
+    time: timing.time,
+    duration: timing.duration,
+    x: pickLayoutValue(layout.x, "50%"),
+    y: pickLayoutValue(layout.y, "50%"),
+    ...(pickOptionalLayoutValue(layout.x_anchor) !== undefined
+      ? { x_anchor: pickOptionalLayoutValue(layout.x_anchor) }
+      : {}),
+    ...(pickOptionalLayoutValue(layout.y_anchor) !== undefined
+      ? { y_anchor: pickOptionalLayoutValue(layout.y_anchor) }
+      : {}),
+    width: pickLayoutValue(layout.width, "70%"),
+    height: pickLayoutValue(layout.height, "20%"),
+    x_alignment: pickLayoutValue(layout.x_alignment, "0%"),
+    y_alignment: pickLayoutValue(layout.y_alignment, "0%"),
+    fit: "contain",
+    source,
+  };
+}
+
+function createDynamicImageElement(
+  elementName: string,
+  source: string,
+  timing: ScreenTiming
+): ModificationValue | null {
+  const layout = getTemplateElementLayout(elementName);
+  if (!layout) return null;
+
+  return {
+    name: `${elementName}_Dynamic`,
+    type: "image",
+    track: Number(layout.track ?? 10) + 10,
+    time: timing.time,
+    duration: timing.duration,
+    x: pickLayoutValue(layout.x, "50%"),
+    y: pickLayoutValue(layout.y, "50%"),
+    ...(pickOptionalLayoutValue(layout.x_anchor) !== undefined
+      ? { x_anchor: pickOptionalLayoutValue(layout.x_anchor) }
+      : {}),
+    ...(pickOptionalLayoutValue(layout.y_anchor) !== undefined
+      ? { y_anchor: pickOptionalLayoutValue(layout.y_anchor) }
+      : {}),
+    width: pickLayoutValue(layout.width, "30%"),
+    height: pickLayoutValue(layout.height, "10%"),
+    x_alignment: pickLayoutValue(layout.x_alignment, "50%"),
+    y_alignment: pickLayoutValue(layout.y_alignment, "50%"),
+    fit: typeof layout.fit === "string" ? layout.fit : "contain",
+    source,
+  };
+}
+
+function pickLayoutValue(
+  value: unknown,
+  fallback: string | number
+): string | number {
+  if (typeof value === "string" || typeof value === "number") {
+    return value;
+  }
+
+  return fallback;
+}
+
+function pickOptionalLayoutValue(
+  value: unknown
+): string | number | undefined {
+  if (typeof value === "string" || typeof value === "number") {
+    return value;
+  }
+
+  return undefined;
+}
+
+function toPixels(value: unknown, baseSize: number): number {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return baseSize;
+
+  const trimmed = value.trim();
+  if (trimmed.endsWith("%")) {
+    return Math.round((baseSize * Number.parseFloat(trimmed)) / 100);
+  }
+  if (trimmed.endsWith("px")) {
+    return Math.round(Number.parseFloat(trimmed));
+  }
+
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? Math.round(parsed) : baseSize;
 }
 
 async function submitRender(

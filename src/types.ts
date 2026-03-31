@@ -21,14 +21,25 @@ export interface ScreenText {
   disclaimer?: string;
 }
 
+export type ModificationValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ModificationValue[]
+  | { [key: string]: ModificationValue };
+
 export interface ParsedBrief {
   campaign_id: string;
   variants: Variant[];
   /** Keyed by screen number: "1", "2", ... "11" */
   screens: Record<string, ScreenText>;
+  /** Resolved duration per active screen in seconds. */
+  screenDurations: Record<string, number>;
   backgrounds: string[];
   sizes: string[];
   audio: string;
+  accolade: string;
   badge: string;
   logo: string;
   novelty?: string[];
@@ -39,6 +50,7 @@ export interface ParseBriefRequest {
   backgrounds: string[];
   sizes: string[];
   audio: string;
+  accolade: string;
   badge: string;
   logo: string;
   novelty?: string[];
@@ -68,7 +80,7 @@ export interface CampaignSummary {
 
 export interface CreatomateRenderRequest {
   template_id: string;
-  modifications: Record<string, string>;
+  modifications: Record<string, ModificationValue>;
   webhook_url: string;
   metadata: string;
 }

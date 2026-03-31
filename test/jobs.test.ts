@@ -18,10 +18,27 @@ const parsed: ParsedBrief = {
     "3": { header: "Stress changes breathing", body: "Guided sessions\nPersonalized plans" },
     "4": { header: "Shallow breaths = high stress", body: "This starves your blood of oxygen." },
     "8": { header: "Stop the spiral", body: "Get breathing exercises", disclaimer: "Not medical treatment." },
+    "9": {
+      header: "Selected\nMUST HAVE APP\nby Apple",
+      body: "Join more than 18,000,000 people who have downloaded Breethe.",
+    },
+    "11": {
+      body: "Feel better. Sleep better.",
+    },
+  },
+  screenDurations: {
+    "1": 2.5,
+    "2": 3,
+    "3": 3.5,
+    "4": 3,
+    "8": 4,
+    "9": 3,
+    "11": 4.5,
   },
   backgrounds: ["bg/PinkTrees.mp4"],
   sizes: ["9:16", "4:5"],
   audio: "audio/track.mp3",
+  accolade: "accolades/must-have-app.png",
   badge: "badges/ios.png",
   logo: "logos/breethe.png",
   novelty: ["novelty/clip1.mp4"],
@@ -33,6 +50,7 @@ describe("buildModifications", () => {
   it("sets background source", () => {
     const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
     expect(mods["Background.source"]).toBe(`${r2Url}/bg/PinkTrees.mp4`);
+    expect(mods["Background.duration"]).toBe(23.5);
   });
 
   it("sets S1_Header and S1_Body from variant", () => {
@@ -50,7 +68,7 @@ describe("buildModifications", () => {
   it("maps screen body-only correctly", () => {
     const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
     expect(mods["S2_Body.text"]).toBe("Science-backed breathing techniques");
-    expect(mods["S2_Header.text"]).toBeUndefined();
+    expect(mods["S2_Header.text"]).toBe("");
   });
 
   it("maps screen header + body", () => {
@@ -64,14 +82,75 @@ describe("buildModifications", () => {
     expect(mods["S8_Disclaimer.text"]).toBe("Not medical treatment.");
   });
 
+  it("uses body copy for screen 9 but skips text header when accolade image is provided", () => {
+    const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
+    expect(mods["S9_Body.text"]).toContain("18,000,000");
+    expect(mods["S9_Header.text"]).toBe("");
+  });
+
+  it("applies per-screen timing to template layers", () => {
+    const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
+    expect(mods["duration"]).toBe(23.5);
+    expect(mods["S1_Header.time"]).toBe(0);
+    expect(mods["S1_Header.duration"]).toBe(2.5);
+    expect(mods["S2_Body.time"]).toBe(2.5);
+    expect(mods["S2_Body.duration"]).toBe(3);
+    expect(mods["S11_Body.time"]).toBe(19);
+    expect(mods["S11_Body.duration"]).toBe(4.5);
+  });
+
   it("includes novelty clip source", () => {
     const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
     expect(mods["NoveltyClip.source"]).toBe(`${r2Url}/novelty/clip1.mp4`);
   });
 
-  it("includes end card logo source", () => {
+  it("injects dynamic assets and audio elements", () => {
     const mods = buildModifications(parsed, 0, "bg/PinkTrees.mp4", r2Url);
-    expect(mods["S11_Logo.source"]).toBe(`${r2Url}/logos/breethe.png`);
+    const dynamicElements = mods["elements.add"] as Array<Record<string, unknown>>;
+
+    expect(dynamicElements.some((element) => element.name === "S9_Accolade_Dynamic")).toBe(true);
+    expect(dynamicElements.some((element) => element.name === "S11_Badge_Dynamic")).toBe(true);
+    expect(dynamicElements.some((element) => element.name === "S11_Logo_Dynamic")).toBe(true);
+    expect(dynamicElements.some((element) => element.name === "Music_Dynamic")).toBe(true);
+  });
+
+  it("strips bold markup before sending plain text modifications when rich rendering is unavailable", () => {
+    const richParsed = {
+      ...parsed,
+      screens: {
+        ...parsed.screens,
+        "2": { body: "If you want to **block overthinking**" },
+      },
+    };
+    const mods = buildModifications(richParsed, 0, "bg/PinkTrees.mp4", r2Url);
+    expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
+  });
+
+  it("injects a rich-text overlay when the worker domain is available", () => {
+    const richParsed = {
+      ...parsed,
+      screens: {
+        ...parsed.screens,
+        "2": { body: "If you want to **block overthinking**" },
+      },
+    };
+    const mods = buildModifications(
+      richParsed,
+      0,
+      "bg/PinkTrees.mp4",
+      r2Url,
+      "https://worker.example.com"
+    );
+    const dynamicElements = mods["elements.add"] as Array<Record<string, unknown>>;
+    const richTextElement = dynamicElements.find(
+      (element) => element.name === "S2_Body_Rich_Dynamic"
+    );
+
+    expect(mods["S2_Body.text"]).toBe("");
+    expect(richTextElement).toBeDefined();
+    expect(String(richTextElement?.source)).toContain(
+      "https://worker.example.com/rich-text.svg?payload="
+    );
   });
 
   it("handles empty background gracefully", () => {

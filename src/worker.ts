@@ -3,10 +3,11 @@ import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
 // @ts-expect-error — virtual module injected by wrangler at build time
 import manifestJSON from "__STATIC_CONTENT_MANIFEST";
 import type { Env, ParseBriefRequest, CreatomateWebhookPayload } from "./types";
-import { parseBrief, computeVideoCount } from "./parser";
+import { parseBrief, computeVideoCount, computeTotalDuration } from "./parser";
 import { createRenderJobs } from "./jobs";
 import { handleWebhook, sendNotification } from "./webhook";
 import { listAssets, getUploadUrl, uploadAsset } from "./assets";
+import { buildRichTextSvg, decodeRichTextPayload } from "./rich-text";
 
 const { preflight, corsify } = cors();
 
@@ -33,6 +34,7 @@ router.post("/parseBrief", async (request, env) => {
       variantCount: parsed.variants.length,
       backgroundCount: parsed.backgrounds.length,
       sizeCount: parsed.sizes.length,
+      totalDuration: computeTotalDuration(parsed),
       totalVideos: videoCount,
     },
   });
@@ -139,6 +141,26 @@ router.get("/assets/public/:key+", async (request, env) => {
   return new Response(obj.body, { headers });
 });
 
+// ─── Rich text SVG rendering ─────────────────────────────────────
+router.get("/rich-text.svg", (request) => {
+  const url = new URL(request.url);
+  const encodedPayload = url.searchParams.get("payload");
+
+  if (!encodedPayload) {
+    return error(400, "Missing rich text payload");
+  }
+
+  const payload = decodeRichTextPayload(encodedPayload);
+  const svg = buildRichTextSvg(payload);
+
+  return new Response(svg, {
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+});
+
 // ─── Campaign status ─────────────────────────────────────────────
 router.get("/campaign/:id", async (request, env) => {
   const campaignId = request.params.id;
@@ -167,6 +189,7 @@ export default {
       "/createJobs",
       "/webhook",
       "/assets",
+      "/rich-text.svg",
       "/campaign",
     ];
     if (apiPrefixes.some((p) => url.pathname.startsWith(p))) {

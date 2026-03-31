@@ -1,5 +1,7 @@
 import type { ParsedBrief, ParseBriefRequest, Variant, ScreenText } from "./types";
 
+const DEFAULT_SLIDE_DURATION = 3;
+
 /**
  * Parse a raw marketing brief into structured data.
  * Extracts campaign ID, variants (V1-V4 headlines/subheadlines),
@@ -7,21 +9,29 @@ import type { ParsedBrief, ParseBriefRequest, Variant, ScreenText } from "./type
  * Number of screens is dynamic — determined by what's in the brief.
  */
 export function parseBrief(req: ParseBriefRequest): ParsedBrief {
-  const { brief, backgrounds, sizes, audio, badge, logo, novelty } = req;
+  const { brief, backgrounds, sizes, audio, accolade, badge, logo, novelty } = req;
 
   const campaignId = extractCampaignId(brief);
   const variants = extractVariants(brief);
-  const screens = extractScreens(brief);
+  const { screens, explicitDurations } = extractScreens(brief);
+  const screenDurations = resolveScreenDurations(
+    brief,
+    variants,
+    screens,
+    explicitDurations
+  );
 
   return {
     campaign_id: campaignId,
     variants,
     screens,
+    screenDurations,
     backgrounds,
     sizes: sizes.length > 0 ? sizes : ["9:16", "4:5"],
-    audio,
-    badge,
-    logo,
+    audio: audio ?? "",
+    accolade: accolade ?? "",
+    badge: badge ?? "",
+    logo: logo ?? "",
     ...(novelty && novelty.length > 0 ? { novelty } : {}),
   };
 }
@@ -97,26 +107,38 @@ function stripEnclosingQuotes(value: string): string {
  * Also supports "S1:", "Screen1:", and numbered formats.
  * The number of screens is entirely determined by the brief content.
  */
-function extractScreens(brief: string): Record<string, ScreenText> {
+function extractScreens(brief: string): {
+  screens: Record<string, ScreenText>;
+  explicitDurations: Record<string, number>;
+} {
   const screens: Record<string, ScreenText> = {};
+  const explicitDurations: Record<string, number> = {};
+  const normalizedBrief = brief.replace(/\r\n/g, "\n");
 
-  // Match "Screen N:" blocks, capturing everything until the next "Screen N:" or end
+  // Match "Screen N:" blocks, capturing everything until the next "Screen N:" or end.
   const screenPattern =
-    /(?:Screen|S)\s*(\d+)[:\s\-–]+\s*([\s\S]*?)(?=(?:Screen|S)\s*\d+[:\s\-–]|$)/gi;
+    /(?:^|\n)\s*(?:Screen|S)\s*(\d+)(?:\s*\(([^)]+)\))?\s*[:\s\-–]+\s*([\s\S]*?)(?=\n\s*(?:Screen|S)\s*\d+(?:\s*\([^)]*\))?\s*[:\s\-–]+|$)/gi;
 
   let match;
-  while ((match = screenPattern.exec(brief)) !== null) {
+  while ((match = screenPattern.exec(normalizedBrief)) !== null) {
     const num = match[1];
-    const block = match[2].trim();
+    const headingDuration = parseDurationText(match[2]);
+    const block = match[3].trim();
 
     if (!block) continue;
+    const parsedBlock = parseScreenBlock(block);
+    if (headingDuration !== undefined) {
+      explicitDurations[num] = headingDuration;
+    }
+    if (parsedBlock.duration !== undefined) {
+      explicitDurations[num] = parsedBlock.duration;
+    }
     if (num === "1" && /(?:^|\n)\s*V\d+\s*[:\-–]/i.test(block)) continue;
 
-    const screen = parseScreenBlock(block);
-    screens[num] = screen;
+    screens[num] = parsedBlock.screen;
   }
 
-  return screens;
+  return { screens, explicitDurations };
 }
 
 /**
@@ -124,8 +146,12 @@ function extractScreens(brief: string): Record<string, ScreenText> {
  * If the block contains "Header:" / "Body:" labels, use those.
  * Otherwise, treat the whole block as body text.
  */
-function parseScreenBlock(block: string): ScreenText {
+function parseScreenBlock(block: string): {
+  screen: ScreenText;
+  duration?: number;
+} {
   const screen: ScreenText = {};
+  let duration: number | undefined;
   const lines = block
     .split("\n")
     .map((line) => stripScreenLineNotes(line.trim()))
@@ -134,11 +160,16 @@ function parseScreenBlock(block: string): ScreenText {
 
   // Parse explicit labels only when they appear at the start of a line.
   const labeled: ScreenText = {};
-  let currentField: keyof ScreenText | null = null;
+  let currentField: "header" | "body" | "disclaimer" | null = null;
   for (const line of lines) {
+    const durationMatch = line.match(/^duration\s*[:\-]?\s*(.+)$/i);
+    if (durationMatch) {
+      duration = parseDurationText(durationMatch[1]) ?? duration;
+      continue;
+    }
     const labelMatch = line.match(/^(header|body|disclaimer)\s*:\s*(.*)$/i);
     if (labelMatch) {
-      currentField = labelMatch[1].toLowerCase() as keyof ScreenText;
+      currentField = labelMatch[1].toLowerCase() as "header" | "body" | "disclaimer";
       labeled[currentField] = labelMatch[2].trim();
       continue;
     }
@@ -154,7 +185,7 @@ function parseScreenBlock(block: string): ScreenText {
     if (labeled.header) screen.header = labeled.header.trim();
     if (labeled.body) screen.body = labeled.body.trim();
     if (labeled.disclaimer) screen.disclaimer = labeled.disclaimer.trim();
-    return screen;
+    return { screen, ...(duration !== undefined ? { duration } : {}) };
   }
 
   const disclaimerStart = lines.findIndex((line) => line.startsWith("*"));
@@ -174,7 +205,7 @@ function parseScreenBlock(block: string): ScreenText {
     screen.disclaimer = disclaimerLines.join("\n");
   }
 
-  return screen;
+  return { screen, ...(duration !== undefined ? { duration } : {}) };
 }
 
 function stripScreenLineNotes(line: string): string {
@@ -191,9 +222,75 @@ function isNonCopyScreenLine(line: string): boolean {
   return /^<<.*>>$/.test(line) || /^end\s*card(?:\s*\(.*\))?$/i.test(line);
 }
 
+function parseDurationText(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const match = value.match(/(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i);
+  if (!match) return undefined;
+  const seconds = Number.parseFloat(match[1]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+function extractDefaultScreenDuration(brief: string): number {
+  const patterns = [
+    /(?:each|every)\s+(?:slide|screen)\s*(?:is|should be|:)?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i,
+    /(?:slide|screen)\s+duration(?:\s+is|\s+should be)?\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i,
+    /duration(?:\s+per\s+(?:slide|screen))?\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\s*(?:each|per)?\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = brief.match(pattern);
+    if (!match) continue;
+    const seconds = parseDurationText(match[0]);
+    if (seconds !== undefined) return seconds;
+  }
+
+  return DEFAULT_SLIDE_DURATION;
+}
+
+function resolveScreenDurations(
+  brief: string,
+  variants: Variant[],
+  screens: Record<string, ScreenText>,
+  explicitDurations: Record<string, number>
+): Record<string, number> {
+  const defaultDuration = extractDefaultScreenDuration(brief);
+  const activeScreenNumbers = new Set<string>();
+
+  if (variants.length > 0) {
+    activeScreenNumbers.add("1");
+  }
+
+  for (const num of Object.keys(screens)) {
+    activeScreenNumbers.add(num);
+  }
+
+  const resolved: Record<string, number> = {};
+  for (const num of [...activeScreenNumbers].sort((a, b) => Number(a) - Number(b))) {
+    resolved[num] = explicitDurations[num] ?? defaultDuration;
+  }
+
+  return resolved;
+}
+
 export function computeVideoCount(parsed: ParsedBrief): number {
   const variantCount = Math.max(parsed.variants.length, 1);
   const bgCount = Math.max(parsed.backgrounds.length, 1);
   const sizeCount = parsed.sizes.length;
   return variantCount * bgCount * sizeCount;
+}
+
+export function computeTotalDuration(parsed: ParsedBrief): number {
+  const orderedScreens = Object.keys(parsed.screenDurations).sort(
+    (a, b) => Number(a) - Number(b)
+  );
+
+  if (orderedScreens.length === 0) {
+    return DEFAULT_SLIDE_DURATION;
+  }
+
+  return Number(
+    orderedScreens
+      .reduce((total, num) => total + (parsed.screenDurations[num] ?? DEFAULT_SLIDE_DURATION), 0)
+      .toFixed(2)
+  );
 }
