@@ -14,6 +14,14 @@ export interface RichTextPayload {
   shadowY?: number | string;
 }
 
+export interface HighlightedFragment {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 type RichTextSegment = {
   text: string;
   bold: boolean;
@@ -77,33 +85,18 @@ export function buildRichTextSvg(payload: RichTextPayload): string {
   const fontSize = payload.fontSize ?? 28;
   const fontWeight = payload.fontWeight ?? 600;
   const emphasisColor = payload.emphasisColor ?? "#8ff3f6";
-  const lineHeight = resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize);
   const shadowFilterId = payload.shadowColor ? "shadow" : "";
-  const lines = layoutRichTextLines(payload.text, width, fontSize, fontWeight);
-  const textElements = [];
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex];
-    const startX = align === "center" ? Math.max(0, (width - line.width) / 2) : 0;
-    let cursorX = startX;
-    const baselineY = Math.max(fontSize, fontSize * 0.82 + lineIndex * lineHeight);
-
-    for (const token of line.tokens) {
-      const tokenWidth = measureTextWidth(token.text, fontSize, token.bold ? 700 : fontWeight);
-      if (token.bold && token.text.trim()) {
-        textElements.push(
-          `<text x="${roundSvg(cursorX)}" y="${roundSvg(baselineY)}" fill="${escapeXml(
-            emphasisColor
-          )}" font-family="${escapeXml(fontFamily)}" font-size="${roundSvg(
-            fontSize
-          )}" font-weight="700"${shadowFilterId ? ` filter="url(#${shadowFilterId})"` : ""} xml:space="preserve">${escapeXml(
-            token.text
-          )}</text>`
-        );
-      }
-      cursorX += tokenWidth;
-    }
-  }
+  const fragments = layoutHighlightedFragments(payload);
+  const textElements = fragments.map((fragment) => {
+    const baselineY = Math.max(fontSize, fragment.y + fontSize * 0.82);
+    return `<text x="${roundSvg(fragment.x)}" y="${roundSvg(baselineY)}" fill="${escapeXml(
+      emphasisColor
+    )}" font-family="${escapeXml(fontFamily)}" font-size="${roundSvg(
+      fontSize
+    )}" font-weight="700"${shadowFilterId ? ` filter="url(#${shadowFilterId})"` : ""} xml:space="preserve">${escapeXml(
+      fragment.text
+    )}</text>`;
+  });
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
@@ -120,6 +113,78 @@ export function buildRichTextSvg(payload: RichTextPayload): string {
     ...textElements,
     "</svg>",
   ].join("");
+}
+
+export function layoutHighlightedFragments(
+  payload: RichTextPayload
+): HighlightedFragment[] {
+  const width = Math.max(1, Math.round(payload.width));
+  const align = payload.align ?? "left";
+  const fontSize = payload.fontSize ?? 28;
+  const fontWeight = payload.fontWeight ?? 600;
+  const lineHeight = resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize);
+  const lines = layoutRichTextLines(payload.text, width, fontSize, fontWeight);
+  const fragments: HighlightedFragment[] = [];
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const startX = align === "center" ? Math.max(0, (width - line.width) / 2) : 0;
+    let cursorX = startX;
+    let activeText = "";
+    let activeStartX = 0;
+    let activeWidth = 0;
+
+    for (const token of line.tokens) {
+      const tokenWidth = measureTextWidth(
+        token.text,
+        fontSize,
+        token.bold ? 700 : fontWeight
+      );
+
+      if (token.bold) {
+        if (!activeText) {
+          activeStartX = cursorX;
+          activeWidth = 0;
+          activeText = "";
+        }
+
+        activeText += token.text;
+        activeWidth += tokenWidth;
+      } else if (activeText) {
+        const fragment = normalizeHighlightedFragment(
+          activeText,
+          activeStartX,
+          activeWidth,
+          lineIndex * lineHeight,
+          lineHeight,
+          fontSize
+        );
+        if (fragment) {
+          fragments.push(fragment);
+        }
+        activeText = "";
+        activeWidth = 0;
+      }
+
+      cursorX += tokenWidth;
+    }
+
+    if (activeText) {
+      const fragment = normalizeHighlightedFragment(
+        activeText,
+        activeStartX,
+        activeWidth,
+        lineIndex * lineHeight,
+        lineHeight,
+        fontSize
+      );
+      if (fragment) {
+        fragments.push(fragment);
+      }
+    }
+  }
+
+  return fragments;
 }
 
 function tokenizeRichText(text: string): RichTextSegment[] {
@@ -321,6 +386,39 @@ function measureTextWidth(
   }
 
   return width * fontSize * weightMultiplier;
+}
+
+function normalizeHighlightedFragment(
+  text: string,
+  startX: number,
+  width: number,
+  y: number,
+  height: number,
+  fontSize: number
+): HighlightedFragment | null {
+  const leadingWhitespace = text.match(/^[ \t]+/)?.[0] ?? "";
+  const trailingWhitespace = text.match(/[ \t]+$/)?.[0] ?? "";
+  const trimmedText = text.trim();
+
+  if (!trimmedText) {
+    return null;
+  }
+
+  const adjustedX = startX + measureTextWidth(leadingWhitespace, fontSize, 700);
+  const adjustedWidth = Math.max(
+    1,
+    width -
+      measureTextWidth(leadingWhitespace, fontSize, 700) -
+      measureTextWidth(trailingWhitespace, fontSize, 700)
+  );
+
+  return {
+    text: trimmedText,
+    x: adjustedX,
+    y,
+    width: adjustedWidth,
+    height,
+  };
 }
 
 function estimateCharacterWidth(char: string): number {

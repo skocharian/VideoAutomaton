@@ -126,7 +126,7 @@ describe("buildModifications", () => {
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
   });
 
-  it("adds a highlight overlay for marked phrases when a worker domain is available", () => {
+  it("adds native text highlight overlays for marked phrases", () => {
     const richParsed = {
       ...parsed,
       screens: {
@@ -138,17 +138,18 @@ describe("buildModifications", () => {
       richParsed,
       0,
       "bg/PinkTrees.mp4",
-      r2Url,
-      "https://worker.example.com"
+      r2Url
     );
 
     expect(mods["S2_Body.text"]).toBe("If you want to block overthinking");
     const dynamicElements = mods["elements.add"] as Array<Record<string, unknown>>;
     const highlightOverlay = dynamicElements.find(
-      (element) => element.name === "S2_Body_Highlight_Dynamic"
+      (element) => element.name === "S2_Body_Highlight_1_Dynamic"
     );
     expect(highlightOverlay).toBeDefined();
-    expect(String(highlightOverlay?.source || "")).toContain("/rich-text.svg?payload=");
+    expect(highlightOverlay?.type).toBe("text");
+    expect(highlightOverlay?.text).toBe("block overthinking");
+    expect(highlightOverlay?.fill_color).toBe("#8ff3f6");
   });
 
   it("applies local text overrides to creatomate modifications", () => {

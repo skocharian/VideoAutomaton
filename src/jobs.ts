@@ -9,8 +9,8 @@ import type {
 } from "./types";
 import { computeTotalDuration } from "./parser";
 import {
-  encodeRichTextPayload,
   hasHighlightedSegments,
+  layoutHighlightedFragments,
   stripRichTextMarkup,
 } from "./rich-text";
 import {
@@ -362,6 +362,7 @@ function applyTextLayerModifications(
   size: string,
   parsed?: ParsedBrief
 ): void {
+  void workerDomain;
   const strippedText = stripRichTextMarkup(text).trim();
 
   if (!strippedText) {
@@ -372,17 +373,16 @@ function applyTextLayerModifications(
   mods[`${elementName}.text`] = strippedText;
   applyTextLayerOverrides(mods, elementName, parsed?.textOverrides?.[elementName]);
 
-  if (workerDomain && hasHighlightedSegments(text)) {
-    const overlay = createHighlightOverlayElement(
+  if (hasHighlightedSegments(text)) {
+    const overlays = createHighlightTextElements(
       elementName,
       text,
       timing,
-      workerDomain,
       size,
       parsed?.textOverrides?.[elementName]
     );
-    if (overlay) {
-      addedElements.push(overlay);
+    if (overlays.length > 0) {
+      addedElements.push(...overlays);
     }
   }
 }
@@ -443,31 +443,25 @@ function createDynamicImageElement(
   };
 }
 
-function createHighlightOverlayElement(
+function createHighlightTextElements(
   elementName: string,
   text: string,
   timing: ScreenTiming,
-  workerDomain: string,
   size: string,
   override: TextLayerOverride | undefined
-): ModificationValue | null {
+): ModificationValue[] {
   const layout = getTemplateElementLayout(elementName, size);
   const dimensions = getTemplateDimensions(size);
-  if (!layout) return null;
+  if (!layout) return [];
 
-  const width = toPixelDimension(layout.width, dimensions.width);
-  const height = toPixelDimension(layout.height, dimensions.height);
-  if (!width || !height) return null;
+  const box = resolveLayoutBox(layout, dimensions, override);
+  if (!box.width || !box.height) return [];
 
-  const payload = encodeRichTextPayload({
+  const payload = {
     text,
-    width,
-    height,
-    align: normalizeAlign(layout.x_alignment),
-    fontFamily:
-      typeof layout.font_family === "string"
-        ? `${layout.font_family}, Open Sans, Arial, sans-serif`
-        : "Open Sans, Arial, sans-serif",
+    width: box.width,
+    height: box.height,
+    align: box.align,
     fontSize:
       Number.isFinite(override?.fontSize) && Number(override?.fontSize) > 0
         ? Number(override?.fontSize)
@@ -493,30 +487,43 @@ function createHighlightOverlayElement(
       typeof layout.shadow_y === "number" || typeof layout.shadow_y === "string"
         ? layout.shadow_y
         : undefined,
-  });
-
-  const overlay = createDynamicImageElement(
-    elementName,
-    `${workerDomain}/rich-text.svg?payload=${payload}`,
-    timing,
-    size
-  );
-
-  if (!overlay || typeof overlay !== "object" || Array.isArray(overlay)) {
-    return overlay;
-  }
-
-  return {
-    ...overlay,
-    name: `${elementName}_Highlight_Dynamic`,
-    track: Number(layout.track ?? 10) + 20,
-    ...(typeof override?.x === "string" && override.x.trim()
-      ? { x: override.x.trim() }
-      : {}),
-    ...(typeof override?.y === "string" && override.y.trim()
-      ? { y: override.y.trim() }
-      : {}),
   };
+
+  return layoutHighlightedFragments(payload).map((fragment, index) => ({
+    name: `${elementName}_Highlight_${index + 1}_Dynamic`,
+    type: "text",
+    track: Number(layout.track ?? 10) + 20 + index,
+    time: timing.time,
+    duration: timing.duration,
+    x: toPercent(box.left + fragment.x, dimensions.width),
+    y: toPercent(box.top + fragment.y, dimensions.height),
+    x_anchor: "0%",
+    y_anchor: "0%",
+    width: toPercent(fragment.width, dimensions.width),
+    height: toPercent(fragment.height, dimensions.height),
+    x_alignment: "0%",
+    y_alignment: "0%",
+    text: fragment.text,
+    font_family:
+      typeof layout.font_family === "string"
+        ? `${layout.font_family}, Open Sans, Arial, sans-serif`
+        : "Open Sans, Arial, sans-serif",
+    font_weight: 700,
+    font_size: payload.fontSize,
+    line_height: payload.lineHeight,
+    fill_color: payload.emphasisColor,
+    ...(typeof layout.shadow_color === "string"
+      ? { shadow_color: layout.shadow_color }
+      : {}),
+    ...(typeof layout.shadow_blur === "number" || typeof layout.shadow_blur === "string"
+      ? { shadow_blur: layout.shadow_blur }
+      : {}),
+    ...(typeof layout.shadow_y === "number" || typeof layout.shadow_y === "string"
+      ? { shadow_y: layout.shadow_y }
+      : {}),
+    text_wrap: false,
+    text_clip: false,
+  }));
 }
 
 function pickLayoutValue(
@@ -533,6 +540,38 @@ function pickLayoutValue(
 function normalizeAlign(value: unknown): "left" | "center" {
   if (typeof value !== "string") return "left";
   return value.trim() === "50%" ? "center" : "left";
+}
+
+function resolveLayoutBox(
+  layout: Record<string, unknown>,
+  dimensions: { width: number; height: number },
+  override: TextLayerOverride | undefined
+): {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  align: "left" | "center";
+} {
+  const width = toPixelDimension(layout.width, dimensions.width);
+  const height = toPixelDimension(layout.height, dimensions.height);
+  const x = toPixelCoordinate(
+    typeof override?.x === "string" && override.x.trim() ? override.x : layout.x,
+    dimensions.width
+  );
+  const y = toPixelCoordinate(
+    typeof override?.y === "string" && override.y.trim() ? override.y : layout.y,
+    dimensions.height
+  );
+  const align = normalizeAlign(layout.x_alignment);
+
+  return {
+    left: align === "center" ? x - width / 2 : x,
+    top: y,
+    width,
+    height,
+    align,
+  };
 }
 
 function toPixelDimension(
@@ -558,6 +597,17 @@ function toPixelDimension(
   }
 
   return 0;
+}
+
+function toPixelCoordinate(
+  value: unknown,
+  total: number
+): number {
+  return toPixelDimension(value, total);
+}
+
+function toPercent(value: number, total: number): string {
+  return `${Number(((value / total) * 100).toFixed(3))}%`;
 }
 
 function pickOptionalLayoutValue(
