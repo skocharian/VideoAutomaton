@@ -15,7 +15,7 @@ bucket_name = "video-automaton-assets"
 
 [[containers]]
 class_name = "BackgroundAnalyzer"
-image = "./container/Dockerfile"
+image = "./Dockerfile.background-analyzer"
 max_instances = 2
 
 [[durable_objects.bindings]]
