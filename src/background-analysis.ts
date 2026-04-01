@@ -178,15 +178,20 @@ export function suggestContentTheme(
   size: RenderSize,
   sampleTimes: number[]
 ): ScreenThemeSuggestion {
+  const header = getThemeForRegion(artifact, size, CONTENT_REGION_IDS.header, sampleTimes);
+  const body = getThemeForRegion(artifact, size, CONTENT_REGION_IDS.body, sampleTimes);
+  const disclaimer = getThemeForRegion(
+    artifact,
+    size,
+    CONTENT_REGION_IDS.disclaimer,
+    sampleTimes
+  );
+  const sharedTheme = harmonizeContentTheme([header, body, disclaimer]);
+
   return {
-    header: getThemeForRegion(artifact, size, CONTENT_REGION_IDS.header, sampleTimes),
-    body: getThemeForRegion(artifact, size, CONTENT_REGION_IDS.body, sampleTimes),
-    disclaimer: getThemeForRegion(
-      artifact,
-      size,
-      CONTENT_REGION_IDS.disclaimer,
-      sampleTimes
-    ),
+    header: sharedTheme,
+    body: sharedTheme,
+    disclaimer: sharedTheme,
   };
 }
 
@@ -280,6 +285,42 @@ function getThemeForRegion(
   }
 
   return THEME_STYLE_DETAILS["white-scrim"];
+}
+
+function harmonizeContentTheme(
+  suggestions: Array<ThemeSuggestion | undefined>
+): ThemeSuggestion {
+  const styles = suggestions
+    .filter((item): item is ThemeSuggestion => Boolean(item))
+    .map((item) => normalizeContentStyle(item.styleId));
+
+  if (!styles.length) {
+    return THEME_STYLE_DETAILS.white;
+  }
+
+  const sharedStyle = styles.reduce((strongest, styleId) =>
+    CONTENT_STYLE_STRENGTH[styleId] > CONTENT_STYLE_STRENGTH[strongest]
+      ? styleId
+      : strongest
+  );
+
+  return THEME_STYLE_DETAILS[sharedStyle];
+}
+
+const CONTENT_STYLE_STRENGTH: Record<"white" | "white-shadow" | "white-scrim", number> = {
+  white: 0,
+  "white-shadow": 1,
+  "white-scrim": 2,
+};
+
+function normalizeContentStyle(
+  styleId: ThemeStyleId
+): "white" | "white-shadow" | "white-scrim" {
+  if (styleId === "white" || styleId === "white-shadow" || styleId === "white-scrim") {
+    return styleId;
+  }
+
+  return "white-scrim";
 }
 
 function aggregateRegionMetrics(

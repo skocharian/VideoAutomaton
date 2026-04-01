@@ -274,6 +274,19 @@ function buildScreenLayers(
     const theme = suggestContentTheme(options.analysisArtifact, options.size, sampleTimes);
     const screenLayout = getContentLayouts(options.size);
     const layers: Array<PreviewLayer | RenderElement> = [];
+    const headerOverride = getTextOverride(elementKeys.header, options.parsed.textOverrides);
+    const bodyOverride = getTextOverride(elementKeys.body, options.parsed.textOverrides);
+    const disclaimerOverride = getTextOverride(
+      elementKeys.disclaimer,
+      options.parsed.textOverrides
+    );
+    const contentLayouts = buildContentFlowLayouts(
+      screenLayout,
+      screen,
+      elementKeys,
+      options.parsed.textOverrides,
+      canvas
+    );
 
     pushScrimLayer(
       layers,
@@ -284,35 +297,35 @@ function buildScreenLayers(
       theme,
       canvas
     );
-    pushTextLayer(
+    pushPreparedTextLayer(
       layers,
       preview,
       elementKeys.header,
       screen.duration,
-      screenLayout.header,
-      options.parsed.textOverrides,
+      5,
+      contentLayouts.header,
       screen.header ?? "",
-      theme.header
+      resolveTheme(theme.header, headerOverride)
     );
-    pushTextLayer(
+    pushPreparedTextLayer(
       layers,
       preview,
       elementKeys.body,
       screen.duration,
-      screenLayout.body,
-      options.parsed.textOverrides,
+      4,
+      contentLayouts.body,
       screen.body ?? "",
-      theme.body
+      resolveTheme(theme.body, bodyOverride)
     );
-    pushTextLayer(
+    pushPreparedTextLayer(
       layers,
       preview,
       elementKeys.disclaimer,
       screen.duration,
-      screenLayout.disclaimer,
-      options.parsed.textOverrides,
+      6,
+      contentLayouts.disclaimer,
       screen.disclaimer ?? "",
-      theme.disclaimer
+      resolveTheme(theme.disclaimer, disclaimerOverride)
     );
 
     return layers;
@@ -329,7 +342,9 @@ function buildScreenLayers(
       const screenLayout = getClosingLayouts(options.size, "accolade");
       const layers: Array<PreviewLayer | RenderElement> = [];
       const headerText =
-        !options.parsed.accolade && !stripRichTextMarkup(screen.header ?? "").trim()
+        options.parsed.accolade
+          ? ""
+          : !stripRichTextMarkup(screen.header ?? "").trim()
           ? getClosingDefaults("accolade").fallbackHeader ?? ""
           : screen.header ?? "";
 
@@ -347,6 +362,7 @@ function buildScreenLayers(
         preview,
         elementKeys.image ?? "Closing_Accolade_Image",
         screen.duration,
+        3,
         screenLayout.image,
         options.parsed.accolade
           ? assetUrl(options.assetBaseUrl, options.parsed.accolade)
@@ -357,6 +373,7 @@ function buildScreenLayers(
         preview,
         elementKeys.header,
         screen.duration,
+        5,
         screenLayout.header,
         options.parsed.textOverrides,
         headerText,
@@ -367,6 +384,7 @@ function buildScreenLayers(
         preview,
         elementKeys.body,
         screen.duration,
+        4,
         screenLayout.body,
         options.parsed.textOverrides,
         screen.body ?? "",
@@ -399,6 +417,7 @@ function buildScreenLayers(
         preview,
         elementKeys.header,
         screen.duration,
+        5,
         screenLayout.header,
         options.parsed.textOverrides,
         screen.header ?? "",
@@ -409,6 +428,7 @@ function buildScreenLayers(
         preview,
         elementKeys.body,
         screen.duration,
+        4,
         screenLayout.body,
         options.parsed.textOverrides,
         screen.body ?? "",
@@ -441,6 +461,7 @@ function buildScreenLayers(
         preview,
         elementKeys.logo ?? "Closing_Endcard_Logo",
         screen.duration,
+        3,
         screenLayout.logo,
         options.parsed.logo ? assetUrl(options.assetBaseUrl, options.parsed.logo) : ""
       );
@@ -449,6 +470,7 @@ function buildScreenLayers(
         preview,
         elementKeys.header,
         screen.duration,
+        5,
         screenLayout.header,
         options.parsed.textOverrides,
         screen.header ?? "",
@@ -459,6 +481,7 @@ function buildScreenLayers(
         preview,
         elementKeys.body,
         screen.duration,
+        4,
         screenLayout.body,
         options.parsed.textOverrides,
         screen.body ?? "",
@@ -469,6 +492,7 @@ function buildScreenLayers(
         preview,
         elementKeys.badge ?? "Closing_Endcard_Badge",
         screen.duration,
+        2,
         screenLayout.badge,
         options.parsed.badge
           ? assetUrl(options.assetBaseUrl, options.parsed.badge)
@@ -564,6 +588,7 @@ function pushTextLayer(
   preview: boolean,
   key: string | undefined,
   duration: number,
+  track: number,
   layout: LayoutTextConfig,
   overrides: ParsedBrief["textOverrides"] | undefined,
   text: string,
@@ -573,11 +598,34 @@ function pushTextLayer(
 
   const override = key ? overrides?.[key] : undefined;
   const resolvedLayout = resolveTextLayout(layout, override);
-  const resolvedTheme = resolveTheme(theme, override);
+  pushPreparedTextLayer(
+    layers,
+    preview,
+    key,
+    duration,
+    track,
+    resolvedLayout,
+    text,
+    resolveTheme(theme, override)
+  );
+}
+
+function pushPreparedTextLayer(
+  layers: Array<PreviewLayer | RenderElement>,
+  preview: boolean,
+  key: string | undefined,
+  duration: number,
+  track: number,
+  layout: LayoutTextConfig | undefined,
+  text: string,
+  theme: ThemeSuggestion | undefined
+): void {
+  if (!layout || !stripRichTextMarkup(text).trim()) return;
+
   layers.push(
     preview
-      ? buildPreviewTextLayer(key, resolvedLayout, text, resolvedTheme)
-      : buildRenderTextElement(key, duration, resolvedLayout, text, resolvedTheme)
+      ? buildPreviewTextLayer(key, layout, text, theme)
+      : buildRenderTextElement(key, duration, track, layout, text, theme)
   );
 }
 
@@ -586,6 +634,7 @@ function pushImageLayer(
   preview: boolean,
   key: string,
   duration: number,
+  track: number,
   layout: LayoutImageConfig,
   src: string
 ): void {
@@ -594,7 +643,7 @@ function pushImageLayer(
   layers.push(
     preview
       ? buildPreviewImageLayer(key, layout, src)
-      : buildRenderImageElement(key, duration, layout, src)
+      : buildRenderImageElement(key, duration, track, layout, src)
   );
 }
 
@@ -653,6 +702,7 @@ function resolveTheme(
 function buildRenderTextElement(
   key: string | undefined,
   duration: number,
+  track: number,
   layout: LayoutTextConfig,
   text: string,
   theme: ThemeSuggestion | undefined
@@ -661,7 +711,7 @@ function buildRenderTextElement(
   return {
     ...(key ? { name: key } : {}),
     type: "text",
-    track: 10,
+    track,
     time: 0,
     duration,
     x: layout.x,
@@ -708,13 +758,14 @@ function buildPreviewImageLayer(
 function buildRenderImageElement(
   key: string,
   duration: number,
+  track: number,
   layout: LayoutImageConfig,
   src: string
 ): RenderElement {
   return {
     name: key,
     type: "image",
-    track: 6,
+    track,
     time: 0,
     duration,
     x: layout.x,
@@ -808,6 +859,253 @@ function getPreferredScrim(theme: ScreenThemeSuggestion): ThemeSuggestion | null
   );
   const scrimSuggestion = suggestions.find((item) => item?.scrimColor);
   return scrimSuggestion ?? null;
+}
+
+function buildContentFlowLayouts(
+  screenLayout: ReturnType<typeof getContentLayouts>,
+  screen: TimelineScreen,
+  elementKeys: ElementKeys,
+  overrides: ParsedBrief["textOverrides"] | undefined,
+  canvas: { width: number; height: number }
+): {
+  header?: LayoutTextConfig;
+  body?: LayoutTextConfig;
+  disclaimer?: LayoutTextConfig;
+} {
+  const headerText = screen.header ?? "";
+  const bodyText = screen.body ?? "";
+  const disclaimerText = screen.disclaimer ?? "";
+
+  const headerOverride = getTextOverride(elementKeys.header, overrides);
+  const bodyOverride = getTextOverride(elementKeys.body, overrides);
+  const disclaimerOverride = getTextOverride(elementKeys.disclaimer, overrides);
+
+  const header = resolveTextLayout(screenLayout.header, headerOverride);
+  const body = resolveTextLayout(screenLayout.body, bodyOverride);
+  const disclaimer = resolveTextLayout(screenLayout.disclaimer, disclaimerOverride);
+
+  const scrimTop = parsePercent(screenLayout.scrim.y);
+  const scrimBottom = scrimTop + parsePercent(screenLayout.scrim.height);
+  const mainTop = scrimTop + 2.1;
+  const mainBottom = scrimBottom - 2.4;
+  const gapPct = pixelsToPercent(Math.max(12, canvas.height * 0.012), canvas.height);
+
+  let fittedHeader: LayoutTextConfig | undefined;
+  let fittedBody: LayoutTextConfig | undefined;
+
+  if (stripRichTextMarkup(headerText).trim()) {
+    const headerY = hasYOverride(headerOverride)
+      ? parsePercent(header.y)
+      : Math.max(mainTop, parsePercent(header.y) - 0.8);
+    const availableHeight = stripRichTextMarkup(bodyText).trim()
+      ? Math.max(7, Math.min(mainBottom - headerY - 7, parsePercent(header.height) * 1.7))
+      : Math.max(8, mainBottom - headerY);
+
+    fittedHeader = fitTextToBox(
+      {
+        ...header,
+        y: formatPercent(headerY),
+        height: formatPercent(availableHeight),
+      },
+      headerText,
+      canvas,
+      {
+        minScale: 0.66,
+        minimumHeight: header.height,
+      }
+    );
+  }
+
+  if (stripRichTextMarkup(bodyText).trim()) {
+    const bodyY = hasYOverride(bodyOverride)
+      ? parsePercent(body.y)
+      : fittedHeader
+        ? parsePercent(fittedHeader.y) + parsePercent(fittedHeader.height) + gapPct
+        : mainTop;
+    const availableHeight = Math.max(8, mainBottom - Math.min(bodyY, mainBottom - 8));
+    const boostedBody = !stripRichTextMarkup(headerText).trim()
+      ? { ...body, font_size: Math.round(body.font_size * 1.08) }
+      : body;
+
+    fittedBody = fitTextToBox(
+      {
+        ...boostedBody,
+        y: formatPercent(Math.min(bodyY, mainBottom - 8)),
+        height: formatPercent(availableHeight),
+      },
+      bodyText,
+      canvas,
+      {
+        minScale: stripRichTextMarkup(headerText).trim() ? 0.62 : 0.72,
+        minimumHeight: body.height,
+      }
+    );
+  }
+
+  const fittedDisclaimer = stripRichTextMarkup(disclaimerText).trim()
+    ? fitTextToBox(disclaimer, disclaimerText, canvas, {
+        minScale: 0.9,
+        minimumHeight: disclaimer.height,
+      })
+    : undefined;
+
+  return {
+    header: fittedHeader,
+    body: fittedBody,
+    disclaimer: fittedDisclaimer,
+  };
+}
+
+function fitTextToBox(
+  layout: LayoutTextConfig,
+  text: string,
+  canvas: { width: number; height: number },
+  options: {
+    minScale?: number;
+    minimumHeight?: string;
+  } = {}
+): LayoutTextConfig {
+  const cleanText = stripRichTextMarkup(text);
+  if (!cleanText.trim()) {
+    return layout;
+  }
+
+  const widthPx = percentToPixels(layout.width, canvas.width);
+  const maxHeightPx = percentToPixels(layout.height, canvas.height);
+  const lineHeightRatio = parseLineHeight(layout.line_height);
+  const minFont = Math.max(12, Math.round(layout.font_size * (options.minScale ?? 0.68)));
+  const minimumHeightPx = options.minimumHeight
+    ? percentToPixels(options.minimumHeight, canvas.height)
+    : 0;
+  let fontSize = layout.font_size;
+  let textHeight = estimateTextHeight(
+    cleanText,
+    widthPx,
+    fontSize,
+    lineHeightRatio,
+    layout.font_weight
+  );
+
+  while (fontSize > minFont && textHeight > maxHeightPx) {
+    fontSize -= 1;
+    textHeight = estimateTextHeight(
+      cleanText,
+      widthPx,
+      fontSize,
+      lineHeightRatio,
+      layout.font_weight
+    );
+  }
+
+  const paddedHeight = Math.min(
+    maxHeightPx,
+    Math.max(
+      minimumHeightPx,
+      textHeight + Math.max(fontSize * 0.58, fontSize * lineHeightRatio * 0.25)
+    )
+  );
+
+  return {
+    ...layout,
+    font_size: fontSize,
+    height: formatPercent(Math.max(pixelsToPercent(paddedHeight, canvas.height), 3.2)),
+  };
+}
+
+function estimateTextHeight(
+  text: string,
+  widthPx: number,
+  fontSize: number,
+  lineHeightRatio: number,
+  fontWeight: number
+): number {
+  const lines = estimateWrappedLineCount(text, widthPx, fontSize, fontWeight);
+  return lines * fontSize * lineHeightRatio;
+}
+
+function estimateWrappedLineCount(
+  text: string,
+  widthPx: number,
+  fontSize: number,
+  fontWeight: number
+): number {
+  const avgCharWidth = fontSize * (fontWeight >= 700 ? 0.61 : 0.58);
+  const maxCharsPerLine = Math.max(1, Math.floor(widthPx / avgCharWidth));
+
+  return text
+    .split("\n")
+    .reduce((lineCount, paragraph) => {
+      const trimmed = paragraph.trim();
+      if (!trimmed) {
+        return lineCount + 1;
+      }
+
+      let paragraphLines = 1;
+      let currentLineLength = 0;
+
+      for (const word of trimmed.split(/\s+/)) {
+        const wordLength = word.length;
+        if (!currentLineLength) {
+          currentLineLength = wordLength;
+          paragraphLines += Math.max(0, Math.ceil(wordLength / maxCharsPerLine) - 1);
+          currentLineLength = Math.min(currentLineLength, maxCharsPerLine);
+          continue;
+        }
+
+        if (currentLineLength + 1 + wordLength <= maxCharsPerLine) {
+          currentLineLength += 1 + wordLength;
+          continue;
+        }
+
+        paragraphLines += 1;
+        currentLineLength = Math.min(wordLength, maxCharsPerLine);
+        paragraphLines += Math.max(0, Math.ceil(wordLength / maxCharsPerLine) - 1);
+      }
+
+      return lineCount + paragraphLines;
+    }, 0);
+}
+
+function getTextOverride(
+  key: string | undefined,
+  overrides: ParsedBrief["textOverrides"] | undefined
+): TextLayerOverride | undefined {
+  return key ? overrides?.[key] : undefined;
+}
+
+function hasYOverride(override: TextLayerOverride | undefined): boolean {
+  return typeof override?.y === "string" && override.y.trim().length > 0;
+}
+
+function parseLineHeight(value: string | undefined): number {
+  if (!value?.trim()) {
+    return 1;
+  }
+  if (value.endsWith("%")) {
+    const numeric = Number.parseFloat(value.slice(0, -1));
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric / 100;
+    }
+  }
+  const numeric = Number.parseFloat(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+}
+
+function parsePercent(value: string): number {
+  const numeric = Number.parseFloat(value.replace("%", ""));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function formatPercent(value: number): string {
+  return `${Number(value.toFixed(2))}%`;
+}
+
+function percentToPixels(value: string, total: number): number {
+  return (parsePercent(value) / 100) * total;
+}
+
+function pixelsToPercent(value: number, total: number): number {
+  return (value / total) * 100;
 }
 
 function buildCssTextShadow(theme: ThemeSuggestion | undefined): string {

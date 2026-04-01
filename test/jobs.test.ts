@@ -187,6 +187,12 @@ function getNestedElement(
   return composition.elements.find((element) => element.name === name);
 }
 
+function parsePercent(value: string | number | undefined): number {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return 0;
+  return Number.parseFloat(value.replace("%", ""));
+}
+
 function createMockKV(store: Record<string, string> = {}) {
   return {
     store,
@@ -400,6 +406,7 @@ describe("buildRenderScriptDocument", () => {
     const previewHeader = previewScreen?.layers.find((layer) => layer.key === "S3_Header");
     const renderScreen = getComposition(document, "Screen_3");
     const renderHeader = getNestedElement(renderScreen, "S3_Header");
+    const renderBody = getNestedElement(renderScreen, "S3_Body");
 
     expect(previewHeader?.x).toBe("12%");
     expect(previewHeader?.y).toBe("14%");
@@ -410,6 +417,80 @@ describe("buildRenderScriptDocument", () => {
     expect(renderHeader?.y).toBe("14%");
     expect(renderHeader?.font_size).toBe(52);
     expect(renderHeader?.fill_color).toBe("#ffcc00");
+    expect(renderHeader?.track).not.toBe(renderBody?.track);
+  });
+
+  it("flows long content copy so body starts below the fitted header and body-only screens move up", () => {
+    const parsed = makeParsed({
+      contentScreens: [
+        {
+          key: "2",
+          duration: 3,
+          body: "The science is clear: Your breathing triggers how your nervous system reacts.",
+        },
+        {
+          key: "6",
+          duration: 3,
+          header:
+            "Regardless of what came first, your body is now locked in a stress cycle.",
+          body: "Anxiety has become a daily habit.",
+        },
+      ],
+      screens: {
+        "2": {
+          body: "The science is clear: Your breathing triggers how your nervous system reacts.",
+        },
+        "6": {
+          header:
+            "Regardless of what came first, your body is now locked in a stress cycle.",
+          body: "Anxiety has become a daily habit.",
+        },
+      },
+      screenDurations: {
+        "1": 2.5,
+        "2": 3,
+        "6": 3,
+      },
+      closingScreens: [],
+      novelty: [],
+      audio: "",
+    });
+
+    const preview = buildPreviewModel({
+      parsed,
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const bodyOnly = preview.slides.find((slide) => slide.sourceKey === "2");
+    const bodyOnlyBody = bodyOnly?.layers.find((layer) => layer.key === "S2_Body");
+    expect(parsePercent(bodyOnlyBody?.y)).toBeLessThan(16);
+
+    const longCopy = preview.slides.find((slide) => slide.sourceKey === "6");
+    const longHeader = longCopy?.layers.find((layer) => layer.key === "S6_Header");
+    const longBody = longCopy?.layers.find((layer) => layer.key === "S6_Body");
+
+    expect(parsePercent(longHeader?.y) + parsePercent(longHeader?.height)).toBeLessThan(
+      parsePercent(longBody?.y)
+    );
+  });
+
+  it("suppresses accolade header copy when an accolade image asset is present", () => {
+    const document = buildRenderScriptDocument({
+      parsed: makeParsed(),
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const accoladeComposition = getComposition(document, "Screen_5");
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")).toBeDefined();
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Header")).toBeUndefined();
   });
 });
 
@@ -461,7 +542,8 @@ describe("background analysis and theme suggestions", () => {
     const portrait = suggestContentTheme(artifact, "4:5", [0]);
 
     expect(vertical.body?.styleId).toBe("white");
-    expect(portrait.body?.styleId).not.toBe("white");
+    expect(portrait.header?.styleId).toBe("white-scrim");
+    expect(portrait.body?.styleId).toBe("white-scrim");
   });
 
   it("uses modulo sampling when a looped background is shorter than the ad duration", () => {
@@ -575,6 +657,6 @@ describe("background analysis storage and render submission", () => {
       (element: { name?: string }) => element.name === "S1_Header"
     );
 
-    expect(header.fill_color).toBe("#0c2340");
+    expect(header.fill_color).toBe("#ffffff");
   });
 });
