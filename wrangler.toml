@@ -2,6 +2,9 @@ name = "video-automaton"
 main = "src/worker.ts"
 compatibility_date = "2024-12-01"
 
+[vars]
+R2_BUCKET_NAME = "video-automaton-assets"
+
 # KV namespace for job state
 [[kv_namespaces]]
 binding = "KV_JOBS"
@@ -31,6 +34,11 @@ new_sqlite_classes = ["BackgroundAnalyzer"]
 
 # CREATOMATE_API_KEY should be set as a secret:
 #   wrangler secret put CREATOMATE_API_KEY
+
+# Optional direct-to-R2 browser uploads to avoid Worker 413 limits:
+#   wrangler secret put R2_ACCOUNT_ID
+#   wrangler secret put R2_ACCESS_KEY_ID
+#   wrangler secret put R2_SECRET_ACCESS_KEY
 
 # Serve frontend as static assets
 # Deploy frontend/ to Cloudflare Pages, or use the assets directory:

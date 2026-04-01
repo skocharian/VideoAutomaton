@@ -30,6 +30,10 @@ export interface Env {
   R2_ASSETS: R2Bucket;
   __STATIC_CONTENT: KVNamespace;
   BACKGROUND_ANALYZER?: DurableObjectNamespace;
+  R2_ACCOUNT_ID?: string;
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+  R2_BUCKET_NAME?: string;
 }
 
 export interface Variant {

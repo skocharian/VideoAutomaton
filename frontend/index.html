@@ -888,16 +888,54 @@
         const uploadedKeys = [];
         for (const file of files) {
           const key = `${folder}/${sanitizeAssetFilename(file.name)}`;
-          const response = await fetch(`${API_BASE}/assets/upload/${encodeURIComponent(key)}`, {
-            method: "PUT",
+          const contentType = file.type || guessContentType(file.name);
+          const targetResponse = await fetch(`${API_BASE}/assets/uploadUrl`, {
+            method: "POST",
             headers: {
-              "Content-Type": file.type || guessContentType(file.name),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              key,
+              contentType,
+            }),
+          });
+
+          if (!targetResponse.ok) {
+            throw new Error(await targetResponse.text());
+          }
+
+          const target = await targetResponse.json();
+          const response = await fetch(target.uploadUrl, {
+            method: target.method || "PUT",
+            headers: target.headers || {
+              "Content-Type": contentType,
             },
             body: file,
           });
 
           if (!response.ok) {
+            if (response.status === 413) {
+              throw new Error(
+                "File is too large for the current upload path. Configure direct R2 upload secrets to avoid the Worker upload limit."
+              );
+            }
             throw new Error(await response.text());
+          }
+
+          if (target.completeUrl) {
+            const completeResponse = await fetch(target.completeUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contentType,
+              }),
+            });
+
+            if (!completeResponse.ok) {
+              throw new Error(await completeResponse.text());
+            }
           }
 
           uploadedKeys.push(key);

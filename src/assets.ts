@@ -1,5 +1,15 @@
+import { AwsClient } from "aws4fetch";
 import type { Env } from "./types";
 import { seedBackgroundAnalysis } from "./background-analysis";
+
+type UploadTarget = {
+  key: string;
+  uploadUrl: string;
+  method: "PUT";
+  headers: Record<string, string>;
+  mode: "direct" | "proxy";
+  completeUrl?: string;
+};
 
 export async function listAssets(
   env: Env,
@@ -14,14 +24,23 @@ export async function listAssets(
 
 export async function getUploadUrl(
   env: Env,
-  key: string
-): Promise<{ key: string; uploadUrl: string }> {
-  // For R2, we return the key and the client uploads via a Worker proxy.
-  // In production you'd use presigned URLs via S3-compatible API.
-  // Here we provide the Worker endpoint path for PUT uploads.
+  key: string,
+  contentType: string,
+  workerOrigin: string
+): Promise<UploadTarget> {
+  const directUpload = await getDirectUploadTarget(env, key, contentType, workerOrigin);
+  if (directUpload) {
+    return directUpload;
+  }
+
   return {
     key,
     uploadUrl: `/assets/upload/${encodeURIComponent(key)}`,
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType,
+    },
+    mode: "proxy",
   };
 }
 
@@ -35,9 +54,93 @@ export async function uploadAsset(
     httpMetadata: { contentType },
   });
 
+  await finalizeUploadedAsset(env, key, contentType);
+}
+
+export async function finalizeUploadedAsset(
+  env: Env,
+  key: string,
+  contentType: string
+): Promise<void> {
   if (key.startsWith("bg/") && isAnalyzableBackgroundAsset(key, contentType)) {
     await seedBackgroundAnalysis(env, key);
   }
+}
+
+async function getDirectUploadTarget(
+  env: Env,
+  key: string,
+  contentType: string,
+  workerOrigin: string
+): Promise<UploadTarget | null> {
+  if (
+    !env.R2_ACCOUNT_ID ||
+    !env.R2_ACCESS_KEY_ID ||
+    !env.R2_SECRET_ACCESS_KEY
+  ) {
+    return null;
+  }
+
+  const bucketName = env.R2_BUCKET_NAME || "video-automaton-assets";
+  const signedUrl = await signR2PutUrl(
+    env,
+    bucketName,
+    key,
+    contentType || "application/octet-stream"
+  );
+
+  return {
+    key,
+    uploadUrl: signedUrl,
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType || "application/octet-stream",
+    },
+    mode: "direct",
+    completeUrl: `${workerOrigin}/assets/upload/complete/${encodeURIComponent(key)}`,
+  };
+}
+
+async function signR2PutUrl(
+  env: Env,
+  bucketName: string,
+  key: string,
+  contentType: string
+): Promise<string> {
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+    service: "s3",
+    region: "auto",
+  });
+
+  const signedRequest = await client.sign(
+    new Request(
+      `https://${bucketName}.${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${encodeR2Key(
+        key
+      )}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": contentType,
+        },
+      }
+    ),
+    {
+      aws: {
+        signQuery: true,
+      },
+    }
+  );
+
+  return signedRequest.url;
+}
+
+function encodeR2Key(key: string): string {
+  return key
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 function isAnalyzableBackgroundAsset(key: string, contentType: string): boolean {

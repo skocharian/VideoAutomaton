@@ -13,7 +13,12 @@ import type {
 import { computeTotalDuration, computeVideoCount, parseBrief } from "./parser";
 import { createRenderJobs } from "./jobs";
 import { handleWebhook, sendNotification } from "./webhook";
-import { getUploadUrl, listAssets, uploadAsset } from "./assets";
+import {
+  finalizeUploadedAsset,
+  getUploadUrl,
+  listAssets,
+  uploadAsset,
+} from "./assets";
 import { buildRichTextSvg, decodeRichTextPayload } from "./rich-text";
 import {
   buildPendingBackgroundAnalysisArtifact,
@@ -142,12 +147,19 @@ router.get("/assets", async (request, env) => {
 });
 
 router.post("/assets/uploadUrl", async (request, env) => {
-  const body = (await request.json()) as { key: string };
+  const body = (await request.json()) as { key: string; contentType?: string };
   if (!body.key) {
     return error(400, "Missing 'key' field");
   }
 
-  return json(await getUploadUrl(env, body.key));
+  return json(
+    await getUploadUrl(
+      env,
+      body.key,
+      body.contentType ?? "application/octet-stream",
+      new URL(request.url).origin
+    )
+  );
 });
 
 router.put("/assets/upload/:key", async (request, env, ctx) => {
@@ -169,6 +181,27 @@ router.put("/assets/upload/:key", async (request, env, ctx) => {
   return json({
     uploaded: key,
     analysisTriggered: shouldTriggerAnalysis && Boolean(env.BACKGROUND_ANALYZER),
+  });
+});
+
+router.post("/assets/upload/complete/:key", async (request, env, ctx) => {
+  const key = decodeURIComponent(request.params.key);
+  const body = (await request.json().catch(() => ({}))) as {
+    contentType?: string;
+  };
+  const contentType = body.contentType ?? "application/octet-stream";
+
+  await finalizeUploadedAsset(env, key, contentType);
+  const shouldTriggerAnalysis = isBackgroundAsset(key, contentType);
+  if (shouldTriggerAnalysis) {
+    const workerOrigin = new URL(request.url).origin;
+    ctx.waitUntil(triggerBackgroundAnalysis(env, workerOrigin, key).catch(console.error));
+  }
+
+  return json({
+    uploaded: key,
+    analysisTriggered: shouldTriggerAnalysis && Boolean(env.BACKGROUND_ANALYZER),
+    mode: "direct",
   });
 });
 
