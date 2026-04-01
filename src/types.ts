@@ -29,6 +29,7 @@ export interface Env {
   KV_JOBS: KVNamespace;
   R2_ASSETS: R2Bucket;
   __STATIC_CONTENT: KVNamespace;
+  BACKGROUND_ANALYZER?: DurableObjectNamespace;
 }
 
 export interface Variant {

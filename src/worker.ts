@@ -16,10 +16,12 @@ import { handleWebhook, sendNotification } from "./webhook";
 import { getUploadUrl, listAssets, uploadAsset } from "./assets";
 import { buildRichTextSvg, decodeRichTextPayload } from "./rich-text";
 import {
+  buildPendingBackgroundAnalysisArtifact,
   getBackgroundAnalysisRef,
   readBackgroundAnalysis,
   writeBackgroundAnalysis,
 } from "./background-analysis";
+import { BackgroundAnalyzer, triggerBackgroundAnalysis } from "./container";
 import { buildPreviewModel } from "./render-plan";
 import { getRenderLayoutConfig } from "./render-layout";
 
@@ -148,7 +150,7 @@ router.post("/assets/uploadUrl", async (request, env) => {
   return json(await getUploadUrl(env, body.key));
 });
 
-router.put("/assets/upload/:key", async (request, env) => {
+router.put("/assets/upload/:key", async (request, env, ctx) => {
   const key = decodeURIComponent(request.params.key);
   const contentType =
     request.headers.get("content-type") ?? "application/octet-stream";
@@ -158,7 +160,16 @@ router.put("/assets/upload/:key", async (request, env) => {
   }
 
   await uploadAsset(env, key, request.body, contentType);
-  return json({ uploaded: key });
+  const shouldTriggerAnalysis = isBackgroundAsset(key, contentType);
+  if (shouldTriggerAnalysis) {
+    const workerOrigin = new URL(request.url).origin;
+    ctx.waitUntil(triggerBackgroundAnalysis(env, workerOrigin, key).catch(console.error));
+  }
+
+  return json({
+    uploaded: key,
+    analysisTriggered: shouldTriggerAnalysis && Boolean(env.BACKGROUND_ANALYZER),
+  });
 });
 
 router.get("/assets/public/:key+", async (request, env) => {
@@ -197,6 +208,37 @@ router.post("/analysis/background", async (request, env) => {
 
   const artifact = await writeBackgroundAnalysis(env, body.artifact);
   return json({ artifact });
+});
+
+router.post("/analysis/background/trigger", async (request, env, ctx) => {
+  const body = (await request.json()) as {
+    assetKey?: string;
+  };
+
+  if (!body.assetKey) {
+    return error(400, "Missing assetKey");
+  }
+
+  await writeBackgroundAnalysis(env, buildPendingBackgroundAnalysisArtifact(body.assetKey));
+
+  const workerOrigin = new URL(request.url).origin;
+  if (!env.BACKGROUND_ANALYZER) {
+    return json({
+      queued: false,
+      status: "pending",
+      reason: "BACKGROUND_ANALYZER binding is not configured",
+    });
+  }
+
+  ctx.waitUntil(
+    triggerBackgroundAnalysis(env, workerOrigin, body.assetKey).catch(console.error)
+  );
+
+  return json({
+    queued: true,
+    status: "pending",
+    assetKey: body.assetKey,
+  });
 });
 
 router.get("/rich-text.svg", (request) => {
@@ -275,6 +317,8 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+export { BackgroundAnalyzer };
+
 async function loadBackgroundAnalysisRefs(
   backgrounds: string[],
   env: Env
@@ -286,4 +330,13 @@ async function loadBackgroundAnalysisRefs(
     ] as const)
   );
   return Object.fromEntries(refs);
+}
+
+function isBackgroundAsset(key: string, contentType: string): boolean {
+  return (
+    key.startsWith("bg/") &&
+    (/^video\//.test(contentType) ||
+      /^image\//.test(contentType) ||
+      /\.(mp4|mov|webm|png|jpe?g)$/i.test(key))
+  );
 }

@@ -13,10 +13,19 @@ preview_id = "8b8477b4dd074337a70acf8feb5b925d"
 binding = "R2_ASSETS"
 bucket_name = "video-automaton-assets"
 
-# Environment variables (set secrets via `wrangler secret put`)
-[vars]
-TEMPLATE_9X16_ID = "ae7226f1-f69c-483b-9cb4-7db0045539bc"
-TEMPLATE_4X5_ID = "bfa21b6e-9aad-439f-868e-9784d682be9c"
+[[containers]]
+class_name = "BackgroundAnalyzer"
+image = "./container/Dockerfile"
+max_instances = 2
+
+[[durable_objects.bindings]]
+name = "BACKGROUND_ANALYZER"
+class_name = "BackgroundAnalyzer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BackgroundAnalyzer"]
+
 # NOTIFY_WEBHOOK_URL is set as a secret:
 #   wrangler secret put NOTIFY_WEBHOOK_URL
 
