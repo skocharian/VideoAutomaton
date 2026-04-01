@@ -348,7 +348,8 @@
     }
 
     .preview-text-layer,
-    .preview-image-layer {
+    .preview-image-layer,
+    .preview-shape-layer {
       position: absolute;
     }
 
@@ -369,6 +370,10 @@
       height: 100%;
       object-fit: contain;
       filter: drop-shadow(0 3px 10px rgba(7, 26, 56, 0.32));
+    }
+
+    .preview-shape-layer {
+      pointer-events: none;
     }
 
     .preview-duration {
@@ -635,7 +640,7 @@
 
     <div id="step-confirm" class="card hidden">
       <h2>2. Confirm Parsed Brief</h2>
-      <div class="helper">Durations are in seconds. Bold markup in the fields below updates the preview immediately.</div>
+      <div class="helper">Durations are in seconds. Bold markup in the fields below updates the preview immediately. The branded closing sequence is fixed, but you can still tune its copy and timing here if needed.</div>
 
       <div class="summary" id="summary-box"></div>
 
@@ -646,6 +651,7 @@
 
       <div id="variants-container"></div>
       <div id="screens-container"></div>
+      <div id="closing-container"></div>
 
       <div class="preview-shell">
         <h3>Screen Preview</h3>
@@ -666,6 +672,8 @@
     const API_BASE = "";
 
     let parsedData = null;
+    let renderConfig = null;
+    let previewModelData = null;
     let allAssets = [];
     let selectedBackgrounds = [];
     let pendingSelections = {
@@ -683,11 +691,26 @@
     let previewMediaCache = {};
     let previewMediaPromises = {};
     let previewRenderToken = 0;
+    let previewDebounceHandle = null;
+    let backgroundAnalysisCache = {};
+    let backgroundAnalysisPromises = {};
+
+    async function loadRenderConfig() {
+      try {
+        const response = await fetch(`${API_BASE}/render-config`);
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        renderConfig = await response.json();
+      } catch {
+        renderConfig = null;
+      }
+    }
 
     async function loadAssets() {
       try {
-        const resp = await fetch(`${API_BASE}/assets`);
-        const data = await resp.json();
+        const response = await fetch(`${API_BASE}/assets`);
+        const data = await response.json();
         allAssets = data.assets || [];
         populateAssets(allAssets);
       } catch {
@@ -710,7 +733,7 @@
       const logoSel = document.getElementById("logo-select");
 
       const bgs = assets.filter((asset) =>
-        /\.(mp4|mov|webm)$/i.test(asset.key) && asset.key.startsWith("bg/")
+        /\.(mp4|mov|webm|png|jpe?g)$/i.test(asset.key) && asset.key.startsWith("bg/")
       );
       const audios = assets.filter((asset) =>
         /\.(mp3|wav|aac|m4a|ogg)$/i.test(asset.key) && asset.key.startsWith("audio/")
@@ -729,8 +752,13 @@
       );
 
       bgList.innerHTML = bgs.length
-        ? bgs.map((asset) => `<li data-key="${asset.key}" onclick="toggleBg(this)">${escapeHtml(asset.key)}</li>`).join("")
-        : "<li>No background videos found</li>";
+        ? bgs
+            .map(
+              (asset) =>
+                `<li data-key="${asset.key}" onclick="toggleBg(this)">${escapeHtml(asset.key)}</li>`
+            )
+            .join("")
+        : "<li>No background assets found</li>";
 
       renderSelectOptions(audioSel, audios);
       renderSelectOptions(accoladeSel, accolades);
@@ -765,15 +793,16 @@
 
       if (parsedData) {
         renderPreviewToolbar();
-        renderPreview();
-        renderInlineEditorPreviews();
+        schedulePreviewRefresh();
       }
     }
 
     function renderSelectOptions(selectEl, assets) {
       selectEl.innerHTML =
         '<option value="">None</option>' +
-        assets.map((asset) => `<option value="${asset.key}">${escapeHtml(asset.key)}</option>`).join("");
+        assets
+          .map((asset) => `<option value="${asset.key}">${escapeHtml(asset.key)}</option>`)
+          .join("");
     }
 
     function restoreSelectValue(selectEl, preferredValue, assets, fallbackPatterns) {
@@ -790,16 +819,16 @@
       }
     }
 
-    function toggleBg(el) {
-      const key = el.dataset.key;
-      const idx = selectedBackgrounds.indexOf(key);
+    function toggleBg(element) {
+      const key = element.dataset.key;
+      const index = selectedBackgrounds.indexOf(key);
 
-      if (idx >= 0) {
-        selectedBackgrounds.splice(idx, 1);
-        el.classList.remove("selected");
+      if (index >= 0) {
+        selectedBackgrounds.splice(index, 1);
+        element.classList.remove("selected");
       } else {
         selectedBackgrounds.push(key);
-        el.classList.add("selected");
+        element.classList.add("selected");
       }
 
       if (!previewState.background || !selectedBackgrounds.includes(previewState.background)) {
@@ -808,20 +837,26 @@
 
       renderBgTags();
       renderPreviewToolbar();
-      renderPreview();
-      renderInlineEditorPreviews();
+      schedulePreviewRefresh();
     }
 
     function renderBgTags() {
       document.getElementById("bg-selected").innerHTML = selectedBackgrounds
-        .map((key) => `<span class="tag">${escapeHtml(key)} <button type="button" onclick="removeBg('${escapeJsString(key)}')">&times;</button></span>`)
+        .map(
+          (key) =>
+            `<span class="tag">${escapeHtml(key)} <button type="button" onclick="removeBg('${escapeJsString(
+              key
+            )}')">&times;</button></span>`
+        )
         .join("");
     }
 
     function removeBg(key) {
       selectedBackgrounds = selectedBackgrounds.filter((item) => item !== key);
-      document.querySelectorAll("#bg-list li").forEach((item) => {
-        if (item.dataset.key === key) item.classList.remove("selected");
+      document.querySelectorAll("#bg-list li[data-key]").forEach((item) => {
+        if (item.dataset.key === key) {
+          item.classList.remove("selected");
+        }
       });
 
       if (previewState.background === key) {
@@ -830,8 +865,7 @@
 
       renderBgTags();
       renderPreviewToolbar();
-      renderPreview();
-      renderInlineEditorPreviews();
+      schedulePreviewRefresh();
     }
 
     async function handleUpload() {
@@ -845,15 +879,15 @@
         return;
       }
 
-      const btn = document.getElementById("btn-upload");
-      btn.disabled = true;
+      const button = document.getElementById("btn-upload");
+      button.disabled = true;
       status.textContent = `Uploading ${files.length} file${files.length > 1 ? "s" : ""}...`;
 
       try {
         const uploadedKeys = [];
         for (const file of files) {
           const key = `${folder}/${sanitizeAssetFilename(file.name)}`;
-          const resp = await fetch(`${API_BASE}/assets/upload/${encodeURIComponent(key)}`, {
+          const response = await fetch(`${API_BASE}/assets/upload/${encodeURIComponent(key)}`, {
             method: "PUT",
             headers: {
               "Content-Type": file.type || guessContentType(file.name),
@@ -861,8 +895,8 @@
             body: file,
           });
 
-          if (!resp.ok) {
-            throw new Error(await resp.text());
+          if (!response.ok) {
+            throw new Error(await response.text());
           }
 
           uploadedKeys.push(key);
@@ -872,10 +906,10 @@
         await loadAssets();
         filesInput.value = "";
         status.textContent = `Uploaded: ${uploadedKeys.join(", ")}`;
-      } catch (err) {
-        status.textContent = `Upload failed: ${err.message}`;
+      } catch (error) {
+        status.textContent = `Upload failed: ${error.message}`;
       } finally {
-        btn.disabled = false;
+        button.disabled = false;
       }
     }
 
@@ -898,7 +932,6 @@
     function getBriefMarkup() {
       const editor = document.getElementById("brief");
       if (!editor) return "";
-
       return normalizeRichTextMarkup(editorNodeToMarkup(editor));
     }
 
@@ -907,7 +940,6 @@
 
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent || "";
-        if (!text) return "";
         return isBold ? `**${text}**` : text;
       }
 
@@ -1012,7 +1044,6 @@
       const content = Array.from(node.childNodes)
         .map((child) => sanitizeHtmlNode(child, nextBold))
         .join("");
-
       const wrapped = nextBold && content ? `<strong>${content}</strong>` : content;
 
       if (isBlockElement(tagName)) {
@@ -1023,37 +1054,34 @@
     }
 
     function insertHtmlAtCursor(html) {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) {
-        document.execCommand("insertHTML", false, html);
-        return;
-      }
-
       document.execCommand("insertHTML", false, html);
     }
 
     function handleBriefPaste(event) {
       event.preventDefault();
       const clipboard = event.clipboardData;
-      const html = clipboard?.getData("text/html") || "";
-      const text = clipboard?.getData("text/plain") || "";
-      insertHtmlAtCursor(sanitizePastedHtml(html, text));
+      insertHtmlAtCursor(
+        sanitizePastedHtml(
+          clipboard?.getData("text/html") || "",
+          clipboard?.getData("text/plain") || ""
+        )
+      );
     }
 
     async function handleParse() {
-      const btn = document.getElementById("btn-parse");
-      btn.disabled = true;
-      btn.textContent = "Parsing...";
+      const button = document.getElementById("btn-parse");
+      button.disabled = true;
+      button.textContent = "Parsing...";
 
       const brief = getBriefMarkup();
-      const sizes = [...document.querySelectorAll(".size-cb:checked")].map((cb) => cb.value);
+      const sizes = [...document.querySelectorAll(".size-cb:checked")].map((checkbox) => checkbox.value);
       const audio = document.getElementById("audio-select").value;
       const accolade = document.getElementById("accolade-select").value;
       const badge = document.getElementById("badge-select").value;
       const logo = document.getElementById("logo-select").value;
 
       try {
-        const resp = await fetch(`${API_BASE}/parseBrief`, {
+        const response = await fetch(`${API_BASE}/parseBrief`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1067,30 +1095,33 @@
           }),
         });
 
-        if (!resp.ok) throw new Error(await resp.text());
-        const data = await resp.json();
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const data = await response.json();
         parsedData = data.parsed;
         previewState.variantIndex = 0;
         previewState.background = parsedData.backgrounds[0] || selectedBackgrounds[0] || "";
         previewState.size = parsedData.sizes[0] || "9:16";
-        showConfirmation(data);
-      } catch (err) {
-        alert("Parse error: " + err.message);
+        showConfirmation();
+      } catch (error) {
+        alert(`Parse error: ${error.message}`);
       } finally {
-        btn.disabled = false;
-        btn.textContent = "Parse Brief";
+        button.disabled = false;
+        button.textContent = "Parse Brief";
       }
     }
 
-    function showConfirmation(data) {
+    function showConfirmation() {
       document.getElementById("step-confirm").classList.remove("hidden");
-      document.getElementById("campaign-id").value = data.parsed.campaign_id;
-
+      document.getElementById("campaign-id").value = parsedData.campaign_id;
       renderVariantsEditor();
       renderScreensEditor();
+      renderClosingEditor();
       renderSummary();
       renderPreviewToolbar();
-      renderPreview();
+      schedulePreviewRefresh(0);
       document.getElementById("step-confirm").scrollIntoView({ behavior: "smooth" });
     }
 
@@ -1105,79 +1136,171 @@
     }
 
     function renderVariantsEditor() {
-      const screenOneDuration = parsedData.screenDurations?.["1"] ?? 3;
       const variantsContainer = document.getElementById("variants-container");
+      const openingDuration = parsedData.screenDurations?.["1"] ?? 3;
 
       variantsContainer.innerHTML = `
         <h3>Variants</h3>
         <div class="variant-card">
           <label>S1 Duration</label>
-          <input type="number" min="0.1" step="0.1" data-duration-screen="1" value="${escapeHtml(String(screenOneDuration))}" />
-          <div class="helper">This controls how long the opening variant slide stays on screen.</div>
-          ${renderTextOverrideEditor("S1_Header", "S1 Headline Style")}
-          ${renderTextOverrideEditor("S1_Body", "S1 Subheadline Style")}
+          <input type="number" min="0.1" step="0.1" data-duration-screen="1" value="${escapeHtml(String(openingDuration))}" />
+          <div class="helper">This controls how long the opening variant screen stays on screen.</div>
+          ${renderTextOverrideEditor("S1_Header", "Opening Headline Style")}
+          ${renderTextOverrideEditor("S1_Body", "Opening Subheadline Style")}
         </div>
-        ${parsedData.variants.map((variant, index) => `
-          <div class="variant-card">
-            <div class="editor-row">
-              <div class="editor-fields">
-                <label>${escapeHtml(variant.id)} Headline</label>
-                <input data-vi="${index}" data-field="headline" value="${escapeHtml(variant.headline)}" />
-                <label>${escapeHtml(variant.id)} Subheadline</label>
-                <textarea data-vi="${index}" data-field="subheadline" class="screen-field">${escapeHtml(variant.subheadline)}</textarea>
+        ${parsedData.variants
+          .map(
+            (variant, index) => `
+              <div class="variant-card">
+                <div class="editor-row">
+                  <div class="editor-fields">
+                    <label>${escapeHtml(variant.id)} Headline</label>
+                    <input data-vi="${index}" data-field="headline" value="${escapeHtml(variant.headline)}" />
+                    <label>${escapeHtml(variant.id)} Subheadline</label>
+                    <textarea data-vi="${index}" data-field="subheadline" class="screen-field">${escapeHtml(variant.subheadline)}</textarea>
+                  </div>
+                  <div class="inline-preview-panel" data-variant-preview="${index}"></div>
+                </div>
               </div>
-              <div class="inline-preview-panel" data-variant-preview="${index}"></div>
-            </div>
-          </div>
-        `).join("")}
+            `
+          )
+          .join("")}
       `;
-
-      renderInlineEditorPreviews();
     }
 
     function renderScreensEditor() {
       const screensContainer = document.getElementById("screens-container");
-      const screenEntries = Object.entries(parsedData.screens).sort((a, b) => Number(a[0]) - Number(b[0]));
+      const contentScreens = parsedData.contentScreens || [];
 
-      screensContainer.innerHTML = screenEntries.length
-        ? `<h3>Screens</h3>${screenEntries.map(([num, screen]) => `
-            <div class="screen-card">
-              <div class="editor-row">
-                <div class="editor-fields">
-                  <strong>Screen ${escapeHtml(num)}</strong>
-                  <div class="field">
-                    <label>S${escapeHtml(num)} Duration</label>
-                    <input type="number" min="0.1" step="0.1" data-duration-screen="${escapeHtml(num)}" value="${escapeHtml(String(parsedData.screenDurations?.[num] ?? 3))}" />
+      screensContainer.innerHTML = contentScreens.length
+        ? `
+          <h3>Content Screens</h3>
+          ${contentScreens
+            .map(
+              (screen) => `
+                <div class="screen-card">
+                  <div class="editor-row">
+                    <div class="editor-fields">
+                      <strong>Screen ${escapeHtml(screen.key)}</strong>
+                      <div class="field">
+                        <label>S${escapeHtml(screen.key)} Duration</label>
+                        <input type="number" min="0.1" step="0.1" data-duration-screen="${escapeHtml(
+                          screen.key
+                        )}" value="${escapeHtml(String(screen.duration))}" />
+                      </div>
+                      ${screen.header !== undefined ? `
+                        <div class="field">
+                          <label>S${escapeHtml(screen.key)} Header</label>
+                          <textarea data-content-key="${escapeHtml(screen.key)}" data-cfield="header" class="screen-field">${escapeHtml(
+                            screen.header || ""
+                          )}</textarea>
+                          ${renderTextOverrideEditor(`S${screen.key}_Header`, `S${screen.key} Header Style`)}
+                        </div>
+                      ` : ""}
+                      ${screen.body !== undefined ? `
+                        <div class="field">
+                          <label>S${escapeHtml(screen.key)} Body</label>
+                          <textarea data-content-key="${escapeHtml(screen.key)}" data-cfield="body" class="screen-field">${escapeHtml(
+                            screen.body || ""
+                          )}</textarea>
+                          ${renderTextOverrideEditor(`S${screen.key}_Body`, `S${screen.key} Body Style`)}
+                        </div>
+                      ` : ""}
+                      ${screen.disclaimer !== undefined ? `
+                        <div class="field">
+                          <label>S${escapeHtml(screen.key)} Disclaimer</label>
+                          <textarea data-content-key="${escapeHtml(screen.key)}" data-cfield="disclaimer" class="screen-field">${escapeHtml(
+                            screen.disclaimer || ""
+                          )}</textarea>
+                          ${renderTextOverrideEditor(`S${screen.key}_Disclaimer`, `S${screen.key} Disclaimer Style`)}
+                        </div>
+                      ` : ""}
+                    </div>
+                    <div class="inline-preview-panel" data-screen-preview="${escapeHtml(screen.key)}"></div>
                   </div>
-                  ${screen.header !== undefined ? `
-                    <div class="field">
-                      <label>S${escapeHtml(num)} Header</label>
-                      <textarea data-screen="${escapeHtml(num)}" data-sfield="header" class="screen-field">${escapeHtml(screen.header || "")}</textarea>
-                      ${renderTextOverrideEditor(`S${num}_Header`, `S${num} Header Style`)}
-                    </div>
-                  ` : ""}
-                  ${screen.body !== undefined ? `
-                    <div class="field">
-                      <label>S${escapeHtml(num)} Body</label>
-                      <textarea data-screen="${escapeHtml(num)}" data-sfield="body" class="screen-field">${escapeHtml(screen.body || "")}</textarea>
-                      ${renderTextOverrideEditor(`S${num}_Body`, `S${num} Body Style`)}
-                    </div>
-                  ` : ""}
-                  ${screen.disclaimer !== undefined ? `
-                    <div class="field">
-                      <label>S${escapeHtml(num)} Disclaimer</label>
-                      <textarea data-screen="${escapeHtml(num)}" data-sfield="disclaimer" class="screen-field">${escapeHtml(screen.disclaimer || "")}</textarea>
-                      ${renderTextOverrideEditor(`S${num}_Disclaimer`, `S${num} Disclaimer Style`)}
-                    </div>
-                  ` : ""}
                 </div>
-                <div class="inline-preview-panel" data-screen-preview="${escapeHtml(num)}"></div>
-              </div>
-            </div>
-          `).join("")}`
+              `
+            )
+            .join("")}
+        `
         : "";
+    }
 
-      renderInlineEditorPreviews();
+    function renderClosingEditor() {
+      const closingContainer = document.getElementById("closing-container");
+      const closingScreens = parsedData.closingScreens || [];
+
+      closingContainer.innerHTML = closingScreens.length
+        ? `
+          <h3>Fixed Closing Sequence</h3>
+          ${closingScreens
+            .map((screen) => {
+              const elementNames = getClosingElementNames(screen.kind);
+              return `
+                <div class="screen-card">
+                  <div class="editor-row">
+                    <div class="editor-fields">
+                      <strong>${escapeHtml(formatClosingKind(screen.kind))}</strong>
+                      <div class="field">
+                        <label>${escapeHtml(formatClosingKind(screen.kind))} Duration</label>
+                        <input type="number" min="0.1" step="0.1" data-duration-closing="${escapeHtml(
+                          screen.kind
+                        )}" value="${escapeHtml(String(screen.duration))}" />
+                      </div>
+                      ${screen.header !== undefined && screen.header !== "" ? `
+                        <div class="field">
+                          <label>${escapeHtml(formatClosingKind(screen.kind))} Header</label>
+                          <textarea data-closing-kind="${escapeHtml(screen.kind)}" data-closing-field="header" class="screen-field">${escapeHtml(
+                            screen.header || ""
+                          )}</textarea>
+                          ${renderTextOverrideEditor(elementNames.header, `${formatClosingKind(screen.kind)} Header Style`)}
+                        </div>
+                      ` : ""}
+                      ${screen.body !== undefined ? `
+                        <div class="field">
+                          <label>${escapeHtml(formatClosingKind(screen.kind))} Body</label>
+                          <textarea data-closing-kind="${escapeHtml(screen.kind)}" data-closing-field="body" class="screen-field">${escapeHtml(
+                            screen.body || ""
+                          )}</textarea>
+                          ${renderTextOverrideEditor(elementNames.body, `${formatClosingKind(screen.kind)} Body Style`)}
+                        </div>
+                      ` : ""}
+                    </div>
+                    <div class="inline-preview-panel" data-closing-preview="${escapeHtml(screen.kind)}"></div>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        `
+        : "";
+    }
+
+    function getClosingElementNames(kind) {
+      if (kind === "accolade") {
+        return {
+          header: "Closing_Accolade_Header",
+          body: "Closing_Accolade_Body",
+        };
+      }
+
+      if (kind === "testimonial") {
+        return {
+          header: "Closing_Testimonial_Header",
+          body: "Closing_Testimonial_Body",
+        };
+      }
+
+      return {
+        header: "Closing_Endcard_Header",
+        body: "Closing_Endcard_Body",
+      };
+    }
+
+    function formatClosingKind(kind) {
+      if (kind === "accolade") return "Accolade Screen";
+      if (kind === "testimonial") return "Testimonial Screen";
+      return "End Card";
     }
 
     function renderTextOverrideEditor(elementName, label) {
@@ -1243,6 +1366,7 @@
         <strong>Summary</strong>
         Campaign: ${escapeHtml(parsedData.campaign_id)}<br>
         Variants: ${parsedData.variants.length} | Backgrounds: ${parsedData.backgrounds.length} | Sizes: ${parsedData.sizes.length}<br>
+        Content screens: ${parsedData.contentScreens.length} + 3 fixed closing screens<br>
         Runtime per video: <strong>${formatSeconds(totalDuration)}</strong><br>
         <strong>Total videos to generate: ${Math.max(parsedData.variants.length, 1) * Math.max(parsedData.backgrounds.length, 1) * parsedData.sizes.length}</strong>
       `;
@@ -1270,36 +1394,67 @@
         <div class="field">
           <label for="preview-variant">Preview Variant</label>
           <select id="preview-variant" onchange="handlePreviewControlsChange()">
-            ${variants.map((variant, index) => `<option value="${index}" ${index === previewState.variantIndex ? "selected" : ""}>${escapeHtml(variant.id)}</option>`).join("")}
+            ${variants
+              .map(
+                (variant, index) =>
+                  `<option value="${index}" ${
+                    index === previewState.variantIndex ? "selected" : ""
+                  }>${escapeHtml(variant.id)}</option>`
+              )
+              .join("")}
           </select>
         </div>
         <div class="field">
           <label for="preview-background">Preview Background</label>
           <select id="preview-background" onchange="handlePreviewControlsChange()">
             ${backgrounds.length
-              ? backgrounds.map((bg) => `<option value="${bg}" ${bg === previewState.background ? "selected" : ""}>${escapeHtml(bg)}</option>`).join("")
+              ? backgrounds
+                  .map(
+                    (background) =>
+                      `<option value="${background}" ${
+                        background === previewState.background ? "selected" : ""
+                      }>${escapeHtml(background)}</option>`
+                  )
+                  .join("")
               : '<option value="">None</option>'}
           </select>
         </div>
         <div class="field">
           <label for="preview-size">Preview Size</label>
           <select id="preview-size" onchange="handlePreviewControlsChange()">
-            ${sizes.map((size) => `<option value="${size}" ${size === previewState.size ? "selected" : ""}>${escapeHtml(size)}</option>`).join("")}
+            ${sizes
+              .map(
+                (size) =>
+                  `<option value="${size}" ${size === previewState.size ? "selected" : ""}>${escapeHtml(size)}</option>`
+              )
+              .join("")}
           </select>
         </div>
         <div class="field">
-          <label>Selected Audio</label>
-          <div class="helper">${escapeHtml(document.getElementById("audio-select").value || "None")}</div>
+          <label>Theme Source</label>
+          <div class="helper">${escapeHtml(describeAnalysisStatus(previewModelData?.analysisStatus || parsedData.backgroundAnalysis?.[previewState.background]?.status || "missing"))}</div>
         </div>
       `;
     }
 
     function handlePreviewControlsChange() {
-      previewState.variantIndex = Number.parseInt(document.getElementById("preview-variant").value, 10) || 0;
+      previewState.variantIndex =
+        Number.parseInt(document.getElementById("preview-variant").value, 10) || 0;
       previewState.background = document.getElementById("preview-background").value;
       previewState.size = document.getElementById("preview-size").value;
-      renderPreview();
-      renderInlineEditorPreviews();
+      schedulePreviewRefresh();
+    }
+
+    function schedulePreviewRefresh(delay = 180) {
+      if (previewDebounceHandle) {
+        clearTimeout(previewDebounceHandle);
+      }
+
+      previewDebounceHandle = setTimeout(() => {
+        previewDebounceHandle = null;
+        renderSummary();
+        renderPreview();
+      }, delay);
     }
 
     async function renderPreview() {
@@ -1307,355 +1462,184 @@
       if (!parsedData || !previewGrid) return;
 
       syncParsedDataFromForm();
-      const slides = buildPreviewSlides();
-      if (!slides.length) {
-        previewGrid.innerHTML = `<div class="helper">No slides available to preview yet.</div>`;
-        return;
-      }
-
       const backgroundKey = previewState.background;
-      const renderToken = ++previewRenderToken;
+      const token = ++previewRenderToken;
+      previewGrid.innerHTML = '<div class="helper">Building preview…</div>';
 
-      previewGrid.innerHTML = slides
-        .map((slide) => renderPreviewCard(slide, null))
-        .join("");
+      try {
+        if (backgroundKey) {
+          await ensureBackgroundAnalysis(backgroundKey);
+        }
 
-      const backgroundMedia = await getPreviewBackgroundMedia(backgroundKey);
-      if (renderToken !== previewRenderToken) {
-        return;
-      }
-
-      previewGrid.innerHTML = slides
-        .map((slide) => renderPreviewCard(slide, backgroundMedia))
-        .join("");
-
-      renderInlineEditorPreviews();
-    }
-
-    function buildPreviewSlides() {
-      const slides = [];
-      const variantSlide = buildVariantSlide(previewState.variantIndex);
-
-      if (variantSlide) {
-        slides.push(variantSlide);
-      }
-
-      Object.entries(parsedData.screens)
-        .sort((a, b) => Number(a[0]) - Number(b[0]))
-        .forEach(([screenNumber, screen]) => {
-          if (screenNumber === "1") return;
-          slides.push(buildScreenSlide(screenNumber, screen));
+        const response = await fetch(`${API_BASE}/previewModel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parsed: parsedData,
+            variantIndex: previewState.variantIndex,
+            background: previewState.background,
+            size: previewState.size,
+          }),
         });
 
-      return slides;
-    }
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
 
-    function buildVariantSlide(variantIndex) {
-      const variant = parsedData.variants[variantIndex] || parsedData.variants[0];
-      if (!variant) return null;
+        const previewModel = await response.json();
+        if (token !== previewRenderToken) return;
+        previewModelData = previewModel;
+        renderPreviewToolbar();
 
-      return {
-        screenNumber: "1",
-        header: variant.headline || "",
-        body: variant.subheadline || "",
-        disclaimer: "",
-        duration: parsedData.screenDurations?.["1"] || 3,
-        mode: "copy",
-        elements: {
-          header: "S1_Header",
-          body: "S1_Body",
-        },
-      };
-    }
+        previewGrid.innerHTML = previewModel.slides
+          .map((slide) => renderPreviewCard(slide, null))
+          .join("");
 
-    function buildScreenSlide(screenNumber, screen) {
-      const hasAccolade = Boolean(parsedData?.accolade);
-      return {
-        screenNumber,
-        header:
-          screenNumber === "11"
-            ? (screen.header || "Breethe")
-            : screenNumber === "9" && hasAccolade
-              ? ""
-              : (screen.header || ""),
-        body: screen.body || "",
-        disclaimer: screen.disclaimer || "",
-        duration: parsedData.screenDurations?.[screenNumber] || 3,
-        mode:
-          screenNumber === "9"
-            ? "accolade"
-            : screenNumber === "11"
-              ? "end"
-              : "copy",
-        elements: {
-          header: `S${screenNumber}_Header`,
-          body: `S${screenNumber}_Body`,
-          disclaimer: `S${screenNumber}_Disclaimer`,
-        },
-      };
+        const backgroundMedia = await getPreviewBackgroundMedia(backgroundKey);
+        if (token !== previewRenderToken) return;
+
+        previewGrid.innerHTML = previewModel.slides
+          .map((slide) => renderPreviewCard(slide, backgroundMedia))
+          .join("");
+        renderInlineEditorPreviews();
+      } catch (error) {
+        if (token !== previewRenderToken) return;
+        previewGrid.innerHTML = `<div class="helper">Preview unavailable: ${escapeHtml(
+          error.message
+        )}</div>`;
+      }
     }
 
     async function renderInlineEditorPreviews() {
-      if (!parsedData) return;
-
+      if (!parsedData || !previewModelData) return;
       const backgroundMedia = await getPreviewBackgroundMedia(previewState.background);
 
+      const openingSlideTemplate = previewModelData.slides.find(
+        (slide) => slide.kind === "variant"
+      );
       document.querySelectorAll("[data-variant-preview]").forEach((container) => {
         const index = Number.parseInt(container.dataset.variantPreview, 10) || 0;
-        const slide = buildVariantSlide(index);
-        container.innerHTML = slide
-          ? renderPreviewCard(slide, backgroundMedia, { compact: true, showDuration: false, scale: 0.28 })
-          : "";
+        const variant = parsedData.variants[index];
+        if (!variant || !openingSlideTemplate) {
+          container.innerHTML = "";
+          return;
+        }
+
+        const slide = clonePreviewSlide(openingSlideTemplate);
+        replaceTextLayer(slide, "S1_Header", variant.headline || "");
+        replaceTextLayer(slide, "S1_Body", variant.subheadline || "");
+        container.innerHTML = renderPreviewCard(slide, backgroundMedia, {
+          scale: 0.28,
+          showDuration: false,
+        });
       });
 
       document.querySelectorAll("[data-screen-preview]").forEach((container) => {
-        const num = container.dataset.screenPreview;
-        const screen = parsedData.screens[num];
-        const slide = screen ? buildScreenSlide(num, screen) : null;
+        const key = container.dataset.screenPreview;
+        const slide = previewModelData.slides.find((item) => item.sourceKey === key);
         container.innerHTML = slide
-          ? renderPreviewCard(slide, backgroundMedia, { compact: true, showDuration: false, scale: 0.28 })
+          ? renderPreviewCard(slide, backgroundMedia, { scale: 0.28, showDuration: false })
+          : "";
+      });
+
+      document.querySelectorAll("[data-closing-preview]").forEach((container) => {
+        const kind = container.dataset.closingPreview;
+        const slide = previewModelData.slides.find((item) => item.kind === kind);
+        container.innerHTML = slide
+          ? renderPreviewCard(slide, backgroundMedia, { scale: 0.28, showDuration: false })
           : "";
       });
     }
 
     function renderPreviewCard(slide, backgroundMedia, options = {}) {
-      const size = options.size || previewState.size || "9:16";
+      const size = previewState.size || "9:16";
       const scale = Number.isFinite(options.scale) ? options.scale : 0.32;
       const showDuration = options.showDuration !== false;
-      const accoladeUrl = document.getElementById("accolade-select").value
-        ? assetUrl(document.getElementById("accolade-select").value)
-        : "";
-      const logoUrl = document.getElementById("logo-select").value
-        ? assetUrl(document.getElementById("logo-select").value)
-        : "";
-      const badgeUrl = document.getElementById("badge-select").value
-        ? assetUrl(document.getElementById("badge-select").value)
-        : "";
-
-      const overlayHtml = [
-        slide.mode === "accolade" && accoladeUrl
-          ? renderPreviewImageLayer("S9_Accolade", accoladeUrl, size)
-          : "",
-        slide.mode === "end" && logoUrl
-          ? renderPreviewImageLayer("S11_Logo", logoUrl, size)
-          : "",
-        slide.mode === "end" && badgeUrl
-          ? renderPreviewImageLayer("S11_Badge", badgeUrl, size)
-          : "",
-        slide.header
-          ? renderPreviewTextLayer(slide.header, slide.elements?.header, size, scale)
-          : "",
-        slide.body
-          ? renderPreviewTextLayer(slide.body, slide.elements?.body, size, scale)
-          : "",
-        slide.disclaimer
-          ? renderPreviewTextLayer(slide.disclaimer, slide.elements?.disclaimer, size, scale)
-          : "",
-      ].join("");
+      const layersHtml = (slide.layers || [])
+        .map((layer) => renderPreviewLayer(layer))
+        .join("");
 
       return `
         <div class="preview-card" data-size="${escapeHtml(size)}" style="--preview-scale:${escapeHtml(String(scale))};">
           <div class="preview-media">
-            ${backgroundMedia?.src
-              ? `<img src="${backgroundMedia.src}" alt="Background preview" loading="lazy" />`
-              : ""}
+            ${backgroundMedia?.src ? `<img src="${escapeHtml(backgroundMedia.src)}" alt="Background preview" loading="lazy" />` : ""}
           </div>
           <div class="preview-overlay">
             ${showDuration ? `<div class="preview-duration">${formatSeconds(slide.duration)}</div>` : ""}
-            ${overlayHtml}
-            <div class="preview-screen-label">S${escapeHtml(slide.screenNumber)}</div>
+            ${layersHtml}
+            <div class="preview-screen-label">S${escapeHtml(String(slide.displayIndex))}</div>
           </div>
         </div>
       `;
     }
 
-    function renderPreviewTextLayer(text, elementName, size, scale) {
-      if (!text || !elementName) return "";
-      const layout = getPreviewTextLayout(elementName, size);
-      if (!layout) return "";
+    function renderPreviewLayer(layer) {
+      const transform = buildLayerTransform(layer);
+      const sharedStyle = `
+        left:${escapeHtml(layer.x)};
+        top:${escapeHtml(layer.y)};
+        width:${escapeHtml(layer.width)};
+        height:${escapeHtml(layer.height)};
+        transform:${escapeHtml(transform)};
+      `;
 
-      const override = getTextOverride(elementName);
-      const x = normalizeOverridePosition(override.x, layout.x);
-      const y = normalizeOverridePosition(override.y, layout.y);
-      const fontSize = Number.isFinite(override.fontSize) ? Number(override.fontSize) : layout.fontSize;
-      const color = override.color || layout.color;
-      const textAlign = layout.align === "center" ? "center" : "left";
-      const transform = layout.align === "center" ? "translateX(-50%)" : "none";
+      if (layer.type === "shape") {
+        return `
+          <div
+            class="preview-shape-layer"
+            style="
+              ${sharedStyle}
+              background:${escapeHtml(layer.color || "transparent")};
+              opacity:${escapeHtml(layer.opacity || "100%")};
+              border-radius:${escapeHtml(layer.borderRadius || "0%")};
+            "
+          ></div>
+        `;
+      }
+
+      if (layer.type === "image") {
+        return `
+          <div class="preview-image-layer" style="${sharedStyle}">
+            <img src="${escapeHtml(layer.src || "")}" alt="${escapeHtml(layer.key)}" style="object-fit:${escapeHtml(layer.fit || "contain")}" loading="lazy" />
+          </div>
+        `;
+      }
 
       return `
         <div
           class="preview-text-layer"
           style="
-            left:${escapeHtml(String(x))}%;
-            top:${escapeHtml(String(y))}%;
-            width:${escapeHtml(String(layout.width))}%;
-            transform:${transform};
-            text-align:${textAlign};
-            font-size:calc(${escapeHtml(String(fontSize))}px * var(--preview-scale));
-            color:${escapeHtml(color)};
-            font-weight:${escapeHtml(String(layout.weight))};
-            line-height:${escapeHtml(String(layout.lineHeight))};
+            ${sharedStyle}
+            color:${escapeHtml(layer.color || "#ffffff")};
+            font-family:${escapeHtml(layer.fontFamily || "Open Sans")};
+            font-size:calc(${escapeHtml(String(layer.fontSize || 28))}px * var(--preview-scale));
+            font-weight:${escapeHtml(String(layer.fontWeight || 600))};
+            line-height:${escapeHtml(layer.lineHeight || "100%")};
+            text-align:${escapeHtml(layer.textAlign || "left")};
+            text-shadow:${escapeHtml(layer.textShadow || "0 2px 12px rgba(7, 26, 56, 0.72)")};
           "
-        >${renderRichTextHtml(text)}</div>
+        >${renderRichTextHtml(layer.text || "")}</div>
       `;
     }
 
-    function renderPreviewImageLayer(elementName, src, size) {
-      const layout = getPreviewImageLayout(elementName, size);
-      if (!layout || !src) return "";
-
-      const transform = layout.align === "center" ? "translateX(-50%)" : "none";
-
-      return `
-        <div
-          class="preview-image-layer"
-          style="
-            left:${escapeHtml(String(layout.x))}%;
-            top:${escapeHtml(String(layout.y))}%;
-            width:${escapeHtml(String(layout.width))}%;
-            height:${escapeHtml(String(layout.height))}%;
-            transform:${transform};
-          "
-        >
-          <img src="${escapeHtml(src)}" alt="${escapeHtml(elementName)}" loading="lazy" />
-        </div>
-      `;
+    function buildLayerTransform(layer) {
+      const transforms = [];
+      if (layer.xAlignment === "50%") transforms.push("translateX(-50%)");
+      if (layer.xAlignment === "100%") transforms.push("translateX(-100%)");
+      if (layer.yAlignment === "50%") transforms.push("translateY(-50%)");
+      if (layer.yAlignment === "100%") transforms.push("translateY(-100%)");
+      return transforms.length ? transforms.join(" ") : "none";
     }
 
-    function getPreviewTextLayout(elementName, size) {
-      const is45 = size === "4:5";
-      const match = String(elementName).match(/^S(\d+)_(Header|Body|Disclaimer)$/);
-      if (!match) return null;
-
-      const screenNumber = Number.parseInt(match[1], 10);
-      const block = match[2];
-
-      if (screenNumber <= 8) {
-        if (block === "Header") {
-          return {
-            x: is45 ? 9.5 : 8.8,
-            y: is45 ? 10.6 : 11.3,
-            width: is45 ? 83 : 82,
-            fontSize: getDefaultPreviewFontSize(elementName),
-            color: "#ffffff",
-            weight: 700,
-            lineHeight: 1.04,
-            align: "left",
-          };
-        }
-
-        if (block === "Body") {
-          return {
-            x: is45 ? 9.5 : 8.8,
-            y: is45 ? 20.3 : 21.2,
-            width: is45 ? 83 : 82,
-            fontSize: getDefaultPreviewFontSize(elementName),
-            color: "#ffffff",
-            weight: 600,
-            lineHeight: 1.04,
-            align: "left",
-          };
-        }
-
-        return {
-          x: is45 ? 9.5 : 8.8,
-          y: is45 ? 79.2 : 81.5,
-          width: is45 ? 83 : 82,
-          fontSize: getDefaultPreviewFontSize(elementName),
-          color: "#eefcff",
-          weight: 400,
-          lineHeight: 1.12,
-          align: "left",
-        };
-      }
-
-      if (screenNumber === 9) {
-        if (block === "Header") {
-          return { x: 50, y: is45 ? 11 : 10.5, width: is45 ? 66 : 62, fontSize: is45 ? 26 : 28, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
-        }
-        if (block === "Body") {
-          return { x: 50, y: is45 ? 52 : 53, width: is45 ? 66 : 64, fontSize: is45 ? 30 : 32, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
-        }
-        return { x: 50, y: is45 ? 84 : 82, width: is45 ? 68 : 70, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
-      }
-
-      if (screenNumber === 10) {
-        if (block === "Header") {
-          return { x: 50, y: is45 ? 22 : 20, width: 82, fontSize: is45 ? 32 : 34, color: "#ffffff", weight: 600, lineHeight: 1.01, align: "center" };
-        }
-        if (block === "Body") {
-          return { x: 50, y: is45 ? 63 : 62, width: is45 ? 56 : 55, fontSize: is45 ? 25 : 26, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
-        }
-        return { x: 50, y: 84, width: 68, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
-      }
-
-      if (screenNumber === 11) {
-        if (block === "Header") {
-          return { x: 31, y: is45 ? 16 : 14.5, width: is45 ? 42 : 46, fontSize: is45 ? 36 : 40, color: "#ffffff", weight: 400, lineHeight: 1, align: "left" };
-        }
-        if (block === "Body") {
-          return { x: 50, y: is45 ? 34 : 31.5, width: is45 ? 72 : 76, fontSize: is45 ? 28 : 31, color: "#ffffff", weight: 700, lineHeight: 1, align: "center" };
-        }
-        return { x: 50, y: 84, width: 68, fontSize: 13, color: "#d8fbff", weight: 400, lineHeight: 1.05, align: "center" };
-      }
-
-      return null;
+    function clonePreviewSlide(slide) {
+      return JSON.parse(JSON.stringify(slide));
     }
 
-    function getPreviewImageLayout(elementName, size) {
-      const is45 = size === "4:5";
-
-      if (elementName === "S9_Accolade") {
-        return { x: 50, y: is45 ? 24 : 25, width: is45 ? 60 : 58, height: is45 ? 19 : 20, align: "center" };
+    function replaceTextLayer(slide, layerKey, value) {
+      const layer = slide.layers.find((item) => item.key === layerKey);
+      if (layer) {
+        layer.text = value;
       }
-
-      if (elementName === "S11_Logo") {
-        return { x: 22, y: is45 ? 20 : 18.5, width: is45 ? 12 : 14, height: is45 ? 8 : 9, align: "center" };
-      }
-
-      if (elementName === "S11_Badge") {
-        return { x: 50, y: is45 ? 50 : 46.5, width: is45 ? 40 : 44, height: is45 ? 10 : 9, align: "center" };
-      }
-
-      return null;
-    }
-
-    function getDefaultPreviewFontSize(elementName) {
-      const fontSizes = {
-        S1_Header: 46,
-        S2_Header: 41,
-        S3_Header: 42,
-        S4_Header: 42,
-        S5_Header: 42,
-        S6_Header: 37,
-        S7_Header: 42,
-        S8_Header: 42,
-        S1_Body: 36,
-        S2_Body: 38,
-        S3_Body: 37,
-        S4_Body: 37,
-        S5_Body: 37,
-        S6_Body: 35,
-        S7_Body: 31,
-        S8_Body: 37,
-        S2_Disclaimer: 14,
-        S3_Disclaimer: 14,
-        S4_Disclaimer: 14,
-        S5_Disclaimer: 14,
-        S6_Disclaimer: 14,
-        S7_Disclaimer: 14,
-        S8_Disclaimer: 14,
-      };
-
-      return fontSizes[elementName] || 28;
-    }
-
-    function normalizeOverridePosition(value, fallback) {
-      if (typeof value === "string" && value.trim()) {
-        return Number.parseFloat(value);
-      }
-
-      return fallback;
     }
 
     function syncParsedDataFromForm() {
@@ -1667,19 +1651,32 @@
       parsedData.accolade = document.getElementById("accolade-select").value;
       parsedData.badge = document.getElementById("badge-select").value;
       parsedData.logo = document.getElementById("logo-select").value;
-      parsedData.sizes = [...document.querySelectorAll(".size-cb:checked")].map((cb) => cb.value);
+      parsedData.sizes = [...document.querySelectorAll(".size-cb:checked")].map((checkbox) => checkbox.value);
 
       document.querySelectorAll("[data-vi]").forEach((input) => {
         const index = Number.parseInt(input.dataset.vi, 10);
         const field = input.dataset.field;
-        parsedData.variants[index][field] = input.value;
+        if (parsedData.variants[index]) {
+          parsedData.variants[index][field] = input.value;
+        }
       });
 
-      document.querySelectorAll("[data-sfield]").forEach((input) => {
-        const num = input.dataset.screen;
-        const field = input.dataset.sfield;
-        if (!parsedData.screens[num]) parsedData.screens[num] = {};
-        parsedData.screens[num][field] = input.value;
+      document.querySelectorAll("[data-content-key]").forEach((input) => {
+        const key = input.dataset.contentKey;
+        const field = input.dataset.cfield;
+        const screen = parsedData.contentScreens.find((item) => item.key === key);
+        if (!screen || !field) return;
+        screen[field] = input.value;
+        parsedData.screens[key] = parsedData.screens[key] || {};
+        parsedData.screens[key][field] = input.value;
+      });
+
+      document.querySelectorAll("[data-closing-kind]").forEach((input) => {
+        const kind = input.dataset.closingKind;
+        const field = input.dataset.closingField;
+        const screen = parsedData.closingScreens.find((item) => item.kind === kind);
+        if (!screen || !field) return;
+        screen[field] = input.value;
       });
 
       parsedData.textOverrides = {};
@@ -1722,33 +1719,60 @@
 
       parsedData.screenDurations = parsedData.screenDurations || {};
       document.querySelectorAll("[data-duration-screen]").forEach((input) => {
-        const num = input.dataset.durationScreen;
+        const key = input.dataset.durationScreen;
         const value = Number.parseFloat(input.value);
-        parsedData.screenDurations[num] = Number.isFinite(value) && value > 0 ? value : 3;
+        const duration = Number.isFinite(value) && value > 0 ? value : 3;
+        parsedData.screenDurations[key] = duration;
+
+        if (key === "1") {
+          return;
+        }
+
+        const contentScreen = parsedData.contentScreens.find((screen) => screen.key === key);
+        if (contentScreen) {
+          contentScreen.duration = duration;
+        }
+      });
+
+      document.querySelectorAll("[data-duration-closing]").forEach((input) => {
+        const kind = input.dataset.durationClosing;
+        const value = Number.parseFloat(input.value);
+        const duration = Number.isFinite(value) && value > 0 ? value : 3;
+        const closingScreen = parsedData.closingScreens.find((screen) => screen.kind === kind);
+        if (closingScreen) {
+          closingScreen.duration = duration;
+        }
       });
     }
 
     async function handleGenerate() {
       syncParsedDataFromForm();
-      const btn = document.getElementById("btn-generate");
-      btn.disabled = true;
-      btn.textContent = "Submitting...";
+      const button = document.getElementById("btn-generate");
+      button.disabled = true;
+      button.textContent = "Submitting...";
 
       try {
-        const resp = await fetch(`${API_BASE}/createJobs`, {
+        await Promise.all(
+          (parsedData.backgrounds || []).map((background) => ensureBackgroundAnalysis(background))
+        );
+
+        const response = await fetch(`${API_BASE}/createJobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parsed: parsedData }),
         });
 
-        if (!resp.ok) throw new Error(await resp.text());
-        const result = await resp.json();
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const result = await response.json();
         showStatus(result);
-      } catch (err) {
-        alert("Job creation error: " + err.message);
+      } catch (error) {
+        alert(`Job creation error: ${error.message}`);
       } finally {
-        btn.disabled = false;
-        btn.textContent = "Generate Videos";
+        button.disabled = false;
+        button.textContent = "Generate Videos";
       }
     }
 
@@ -1762,7 +1786,13 @@
           Jobs submitted: ${result.totalJobs}<br>
           Rendering: ${result.rendering}<br>
           Failed: ${result.failed}<br>
-          ${result.errors.length ? `<br>Errors:<br>${result.errors.map((err) => `- ${escapeHtml(err)}`).join("<br>")}` : ""}
+          ${
+            result.errors.length
+              ? `<br>Errors:<br>${result.errors
+                  .map((item) => `- ${escapeHtml(item)}`)
+                  .join("<br>")}`
+              : ""
+          }
           <br><br>You will be notified when all renders are complete.
         </div>
       `;
@@ -1770,10 +1800,449 @@
       document.getElementById("step-status").scrollIntoView({ behavior: "smooth" });
     }
 
+    async function ensureBackgroundAnalysis(backgroundKey) {
+      if (!backgroundKey || !renderConfig) {
+        return null;
+      }
+
+      if (backgroundAnalysisCache[backgroundKey]) {
+        return backgroundAnalysisCache[backgroundKey];
+      }
+
+      if (backgroundAnalysisPromises[backgroundKey]) {
+        return backgroundAnalysisPromises[backgroundKey];
+      }
+
+      backgroundAnalysisPromises[backgroundKey] = (async () => {
+        const existing = await fetchBackgroundAnalysis(backgroundKey);
+        if (existing?.artifact && hasCompleteAnalysis(existing.artifact)) {
+          backgroundAnalysisCache[backgroundKey] = existing.artifact;
+          return existing.artifact;
+        }
+
+        const artifact = await analyzeBackgroundAssetInBrowser(backgroundKey, existing?.artifact || null);
+        if (!artifact) {
+          backgroundAnalysisCache[backgroundKey] = existing?.artifact || null;
+          return backgroundAnalysisCache[backgroundKey];
+        }
+
+        const response = await fetch(`${API_BASE}/analysis/background`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artifact }),
+        });
+
+        if (!response.ok) {
+          backgroundAnalysisCache[backgroundKey] = artifact;
+          return artifact;
+        }
+
+        const data = await response.json();
+        backgroundAnalysisCache[backgroundKey] = data.artifact || artifact;
+        return backgroundAnalysisCache[backgroundKey];
+      })()
+        .catch(() => null)
+        .finally(() => {
+          delete backgroundAnalysisPromises[backgroundKey];
+        });
+
+      return backgroundAnalysisPromises[backgroundKey];
+    }
+
+    async function fetchBackgroundAnalysis(backgroundKey) {
+      const response = await fetch(
+        `${API_BASE}/analysis/background/${backgroundKey
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`
+      );
+      if (!response.ok) {
+        return null;
+      }
+      return response.json();
+    }
+
+    function hasCompleteAnalysis(artifact) {
+      return (
+        artifact &&
+        (artifact.status === "ready" || artifact.status === "temporary") &&
+        artifact.sizes?.["9:16"]?.frames?.length &&
+        artifact.sizes?.["4:5"]?.frames?.length
+      );
+    }
+
+    async function analyzeBackgroundAssetInBrowser(backgroundKey, existingArtifact) {
+      const url = assetUrl(backgroundKey);
+      if (!url || !renderConfig) return null;
+
+      if (isVideoAsset(backgroundKey)) {
+        return analyzeVideoAsset(url, backgroundKey, existingArtifact);
+      }
+
+      return analyzeImageAsset(url, backgroundKey, existingArtifact);
+    }
+
+    async function analyzeVideoAsset(url, assetKey, existingArtifact) {
+      const video = document.createElement("video");
+      video.preload = "auto";
+      video.muted = true;
+      video.playsInline = true;
+      video.crossOrigin = "anonymous";
+
+      await new Promise((resolve, reject) => {
+        video.addEventListener("loadedmetadata", resolve, { once: true });
+        video.addEventListener("error", () => reject(new Error("Could not load video metadata")), {
+          once: true,
+        });
+        video.src = url;
+      });
+
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
+      const sampleTimes = buildSampleTimes(duration);
+      const frames = [];
+
+      for (const sampleTime of sampleTimes) {
+        await seekVideo(video, sampleTime);
+        const frame = captureFrameFromVideo(video);
+        if (!frame) continue;
+        frames.push(buildFrameAnalysis(frame, sampleTime));
+      }
+
+      cleanupVideoElement(video);
+      return buildAnalysisArtifact(assetKey, {
+        existingArtifact,
+        sourceDuration: duration,
+        sourceWidth: frames[0]?.sourceWidth || video.videoWidth,
+        sourceHeight: frames[0]?.sourceHeight || video.videoHeight,
+        frames,
+      });
+    }
+
+    async function analyzeImageAsset(url, assetKey, existingArtifact) {
+      const image = await loadImage(url);
+      const frame = captureFrameFromImage(image);
+      if (!frame) return null;
+
+      return buildAnalysisArtifact(assetKey, {
+        existingArtifact,
+        sourceDuration: 0,
+        sourceWidth: frame.sourceWidth,
+        sourceHeight: frame.sourceHeight,
+        frames: [buildFrameAnalysis(frame, 0)],
+      });
+    }
+
+    function buildAnalysisArtifact(assetKey, options) {
+      const { existingArtifact, sourceDuration, sourceWidth, sourceHeight, frames } = options;
+      const sizes = {};
+
+      for (const size of ["9:16", "4:5"]) {
+        const sizeFrames = frames.map((frame) => ({
+          sourceTime: frame.sourceTime,
+          regions: frame.regions[size],
+        }));
+        sizes[size] = {
+          sampleTimes: sizeFrames.map((frame) => frame.sourceTime),
+          crop: frames[0]?.crops[size] || { sourceX: 0, sourceY: 0, sourceWidth, sourceHeight },
+          frames: sizeFrames,
+        };
+      }
+
+      return {
+        version: 1,
+        assetKey,
+        status: "temporary",
+        source: "browser-temporary",
+        updatedAt: new Date().toISOString(),
+        sourceDuration,
+        sourceWidth,
+        sourceHeight,
+        sizes: {
+          ...(existingArtifact?.sizes || {}),
+          ...sizes,
+        },
+      };
+    }
+
+    function buildFrameAnalysis(frame, sourceTime) {
+      const regions = {};
+      const crops = {};
+
+      for (const size of ["9:16", "4:5"]) {
+        const crop = computeCoverCrop(frame.sourceWidth, frame.sourceHeight, size);
+        crops[size] = crop;
+        regions[size] = analyzeRegionsForSize(frame.imageData, crop, size);
+      }
+
+      return {
+        sourceTime,
+        sourceWidth: frame.sourceWidth,
+        sourceHeight: frame.sourceHeight,
+        crops,
+        regions,
+      };
+    }
+
+    function analyzeRegionsForSize(imageData, crop, size) {
+      const sizeConfig = renderConfig?.sizes?.[size];
+      if (!sizeConfig) return {};
+
+      const regionLayouts = [
+        sizeConfig.regions.content.header,
+        sizeConfig.regions.content.body,
+        sizeConfig.regions.content.disclaimer,
+        sizeConfig.regions.accolade.body,
+        sizeConfig.regions.testimonial.header,
+        sizeConfig.regions.testimonial.body,
+        sizeConfig.regions.endcard.header,
+        sizeConfig.regions.endcard.body,
+      ];
+
+      const uniqueRegionIds = new Map();
+      regionLayouts.forEach((layout) => {
+        if (!layout || uniqueRegionIds.has(layout.regionId)) return;
+        uniqueRegionIds.set(layout.regionId, computeRegionMetrics(imageData, crop, layout));
+      });
+
+      return Object.fromEntries(uniqueRegionIds.entries());
+    }
+
+    function computeRegionMetrics(imageData, crop, layout) {
+      const width = imageData.width;
+      const height = imageData.height;
+      const box = resolveLayoutBox(layout, crop);
+      const startX = clampInt(Math.floor(box.x), 0, width - 1);
+      const startY = clampInt(Math.floor(box.y), 0, height - 1);
+      const endX = clampInt(Math.ceil(box.x + box.width), startX + 1, width);
+      const endY = clampInt(Math.ceil(box.y + box.height), startY + 1, height);
+      const step = 4;
+
+      let luminanceTotal = 0;
+      let luminanceSquaredTotal = 0;
+      let brightCount = 0;
+      let darkCount = 0;
+      let detailTotal = 0;
+      let count = 0;
+
+      for (let y = startY; y < endY; y += step) {
+        for (let x = startX; x < endX; x += step) {
+          const index = (y * width + x) * 4;
+          const luminance = getPixelLuminance(imageData.data, index);
+          luminanceTotal += luminance;
+          luminanceSquaredTotal += luminance * luminance;
+          if (luminance >= 0.82) brightCount += 1;
+          if (luminance <= 0.25) darkCount += 1;
+          detailTotal += getPixelDetail(imageData.data, width, height, x, y);
+          count += 1;
+        }
+      }
+
+      const averageLuminance = count ? luminanceTotal / count : 0.5;
+      const variance = count
+        ? Math.max(0, luminanceSquaredTotal / count - averageLuminance * averageLuminance)
+        : 0;
+
+      return {
+        avgLuminance: Number(averageLuminance.toFixed(4)),
+        variance: Number(variance.toFixed(4)),
+        brightRatio: Number((brightCount / Math.max(count, 1)).toFixed(4)),
+        darkRatio: Number((darkCount / Math.max(count, 1)).toFixed(4)),
+        detail: Number((detailTotal / Math.max(count, 1)).toFixed(4)),
+      };
+    }
+
+    function resolveLayoutBox(layout, crop) {
+      const width = toPixelValue(layout.width, crop.width);
+      const height = toPixelValue(layout.height, crop.height);
+      const centerX = crop.x + toPixelValue(layout.x, crop.width);
+      const centerY = crop.y + toPixelValue(layout.y, crop.height);
+      const xAlignment = layout.x_alignment || "0%";
+      const yAlignment = layout.y_alignment || "0%";
+
+      return {
+        x:
+          xAlignment === "50%"
+            ? centerX - width / 2
+            : xAlignment === "100%"
+              ? centerX - width
+              : centerX,
+        y:
+          yAlignment === "50%"
+            ? centerY - height / 2
+            : yAlignment === "100%"
+              ? centerY - height
+              : centerY,
+        width,
+        height,
+      };
+    }
+
+    function getPixelLuminance(data, index) {
+      const r = data[index] / 255;
+      const g = data[index + 1] / 255;
+      const b = data[index + 2] / 255;
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    function getPixelDetail(data, width, height, x, y) {
+      const currentIndex = (y * width + x) * 4;
+      const current = getPixelLuminance(data, currentIndex);
+      let comparisons = 0;
+      let total = 0;
+
+      const neighbors = [
+        [Math.min(width - 1, x + 1), y],
+        [x, Math.min(height - 1, y + 1)],
+      ];
+
+      for (const [neighborX, neighborY] of neighbors) {
+        if (neighborX === x && neighborY === y) continue;
+        const neighborIndex = (neighborY * width + neighborX) * 4;
+        const neighbor = getPixelLuminance(data, neighborIndex);
+        total += Math.abs(current - neighbor);
+        comparisons += 1;
+      }
+
+      return comparisons ? total / comparisons : 0;
+    }
+
+    function toPixelValue(value, base) {
+      if (typeof value === "number") return value;
+      const numeric = parseFloat(String(value).replace("%", ""));
+      return String(value).includes("%") ? (base * numeric) / 100 : numeric;
+    }
+
+    function computeCoverCrop(sourceWidth, sourceHeight, size) {
+      const sizeConfig = renderConfig?.sizes?.[size];
+      const targetAspect = sizeConfig.canvas.width / sizeConfig.canvas.height;
+      const sourceAspect = sourceWidth / sourceHeight;
+
+      if (sourceAspect > targetAspect) {
+        const cropWidth = sourceHeight * targetAspect;
+        return {
+          sourceX: (sourceWidth - cropWidth) / 2,
+          sourceY: 0,
+          sourceWidth: cropWidth,
+          sourceHeight: sourceHeight,
+          x: (sourceWidth - cropWidth) / 2,
+          y: 0,
+          width: cropWidth,
+          height: sourceHeight,
+        };
+      }
+
+      const cropHeight = sourceWidth / targetAspect;
+      return {
+        sourceX: 0,
+        sourceY: (sourceHeight - cropHeight) / 2,
+        sourceWidth: sourceWidth,
+        sourceHeight: cropHeight,
+        x: 0,
+        y: (sourceHeight - cropHeight) / 2,
+        width: sourceWidth,
+        height: cropHeight,
+      };
+    }
+
+    function buildSampleTimes(duration) {
+      const ratios = renderConfig?.sampleRatios || [0, 0.2, 0.4, 0.6, 0.8];
+      const maxTime = Math.max(duration - 0.05, 0);
+      return [...new Set(ratios.map((ratio) => Number(Math.min(duration * ratio, maxTime).toFixed(3))))];
+    }
+
+    function seekVideo(video, time) {
+      return new Promise((resolve, reject) => {
+        const onSeeked = () => {
+          cleanup();
+          resolve();
+        };
+        const onError = () => {
+          cleanup();
+          reject(new Error("Failed to seek video"));
+        };
+        const cleanup = () => {
+          video.removeEventListener("seeked", onSeeked);
+          video.removeEventListener("error", onError);
+        };
+        video.addEventListener("seeked", onSeeked);
+        video.addEventListener("error", onError);
+        video.currentTime = time;
+      });
+    }
+
+    function captureFrameFromVideo(video) {
+      if (!video.videoWidth || !video.videoHeight) return null;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.min(video.videoWidth, 360);
+      canvas.height = Math.max(
+        1,
+        Math.round((canvas.width * video.videoHeight) / video.videoWidth)
+      );
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return {
+        imageData: context.getImageData(0, 0, canvas.width, canvas.height),
+        sourceWidth: canvas.width,
+        sourceHeight: canvas.height,
+      };
+    }
+
+    function captureFrameFromImage(image) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.min(image.naturalWidth || image.width, 360);
+      canvas.height = Math.max(
+        1,
+        Math.round((canvas.width * (image.naturalHeight || image.height)) / (image.naturalWidth || image.width))
+      );
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return {
+        imageData: context.getImageData(0, 0, canvas.width, canvas.height),
+        sourceWidth: canvas.width,
+        sourceHeight: canvas.height,
+      };
+    }
+
+    function cleanupVideoElement(video) {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    }
+
+    function loadImage(url) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("Could not load image"));
+        image.src = url;
+      });
+    }
+
+    function clampInt(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function describeAnalysisStatus(status) {
+      if (status === "ready") return "Canonical background analysis";
+      if (status === "temporary") return "Temporary browser analysis";
+      if (status === "pending") return "Pending analysis";
+      return "Default theme only";
+    }
+
     function computeTotalDuration(parsed) {
-      const durations = Object.values(parsed.screenDurations || {});
-      if (!durations.length) return 3;
-      return Number(durations.reduce((total, duration) => total + duration, 0).toFixed(2));
+      const openingDuration = parsed.variants.length ? parsed.screenDurations?.["1"] || 3 : 0;
+      const contentDuration = (parsed.contentScreens || []).reduce(
+        (total, screen) => total + (Number(screen.duration) || 0),
+        0
+      );
+      const closingDuration = (parsed.closingScreens || []).reduce(
+        (total, screen) => total + (Number(screen.duration) || 0),
+        0
+      );
+      return Number((openingDuration + contentDuration + closingDuration).toFixed(2)) || 3;
     }
 
     function renderRichTextHtml(text) {
@@ -1815,7 +2284,11 @@
       }
 
       return segments
-        .map((segment) => segment.bold ? `<strong>${escapeHtml(segment.text)}</strong>` : escapeHtml(segment.text))
+        .map((segment) =>
+          segment.bold
+            ? `<strong>${escapeHtml(segment.text)}</strong>`
+            : escapeHtml(segment.text)
+        )
         .join("");
     }
 
@@ -1827,7 +2300,6 @@
 
     async function getPreviewBackgroundMedia(backgroundKey) {
       if (!backgroundKey) return null;
-
       if (previewMediaCache[backgroundKey]) {
         return previewMediaCache[backgroundKey];
       }
@@ -1865,8 +2337,7 @@
     function createVideoThumbnail(url) {
       return new Promise((resolve) => {
         const video = document.createElement("video");
-        let hasCaptured = false;
-        let seekRequested = false;
+        let settled = false;
 
         const cleanup = () => {
           video.pause();
@@ -1875,36 +2346,10 @@
         };
 
         const finish = (result) => {
-          if (hasCaptured) return;
-          hasCaptured = true;
+          if (settled) return;
+          settled = true;
           cleanup();
           resolve(result);
-        };
-
-        const captureFrame = () => {
-          if (!video.videoWidth || !video.videoHeight) {
-            finish(null);
-            return;
-          }
-
-          const canvas = document.createElement("canvas");
-          const targetWidth = 360;
-          const targetHeight = Math.max(
-            1,
-            Math.round((targetWidth * video.videoHeight) / video.videoWidth)
-          );
-
-          canvas.width = targetWidth;
-          canvas.height = targetHeight;
-
-          const context = canvas.getContext("2d");
-          if (!context) {
-            finish(null);
-            return;
-          }
-
-          context.drawImage(video, 0, 0, targetWidth, targetHeight);
-          finish(canvas.toDataURL("image/jpeg", 0.82));
         };
 
         video.preload = "metadata";
@@ -1918,29 +2363,38 @@
           () => {
             const duration = Number.isFinite(video.duration) ? video.duration : 0;
             const targetTime = duration > 1 ? Math.min(1, duration * 0.15) : 0;
+            try {
+              video.currentTime = targetTime;
+            } catch {
+              capture();
+            }
+          },
+          { once: true }
+        );
+        video.addEventListener("loadeddata", capture, { once: true });
+        video.addEventListener("seeked", capture, { once: true });
 
-            if (targetTime > 0) {
-              seekRequested = true;
-              try {
-                video.currentTime = targetTime;
-              } catch {
-                seekRequested = false;
-                captureFrame();
-              }
-            }
-          },
-          { once: true }
-        );
-        video.addEventListener(
-          "loadeddata",
-          () => {
-            if (!seekRequested) {
-              captureFrame();
-            }
-          },
-          { once: true }
-        );
-        video.addEventListener("seeked", captureFrame, { once: true });
+        function capture() {
+          if (!video.videoWidth || !video.videoHeight) {
+            finish(null);
+            return;
+          }
+          const canvas = document.createElement("canvas");
+          const targetWidth = 360;
+          const targetHeight = Math.max(
+            1,
+            Math.round((targetWidth * video.videoHeight) / video.videoWidth)
+          );
+          const context = canvas.getContext("2d");
+          if (!context) {
+            finish(null);
+            return;
+          }
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          context.drawImage(video, 0, 0, targetWidth, targetHeight);
+          finish(canvas.toDataURL("image/jpeg", 0.82));
+        }
 
         video.src = url;
       });
@@ -1950,10 +2404,8 @@
       const dotIndex = name.lastIndexOf(".");
       const basename = dotIndex >= 0 ? name.slice(0, dotIndex) : name;
       const extension = dotIndex >= 0 ? name.slice(dotIndex).toLowerCase() : "";
-      const cleanBase = basename
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "asset";
+      const cleanBase =
+        basename.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "asset";
       return `${cleanBase}${extension}`;
     }
 
@@ -1990,9 +2442,7 @@
 
     document.getElementById("step-confirm").addEventListener("input", () => {
       if (!parsedData) return;
-      renderSummary();
-      renderPreview();
-      renderInlineEditorPreviews();
+      schedulePreviewRefresh();
     });
 
     document.getElementById("step-input").addEventListener("change", (event) => {
@@ -2001,14 +2451,13 @@
       if (!(target instanceof HTMLElement)) return;
       if (["audio-select", "accolade-select", "badge-select", "logo-select"].includes(target.id)) {
         renderPreviewToolbar();
-        renderPreview();
-        renderInlineEditorPreviews();
+        schedulePreviewRefresh();
       }
     });
 
     document.getElementById("brief").addEventListener("paste", handleBriefPaste);
 
-    loadAssets();
+    Promise.all([loadRenderConfig(), loadAssets()]).catch(() => {});
   </script>
 </body>
 </html>

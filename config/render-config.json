@@ -1,0 +1,514 @@
+{
+  "palette": {
+    "white": "#ffffff",
+    "navy": "#0c2340",
+    "accent": "#87f1f7",
+    "shadow": "rgba(7,26,56,0.72)",
+    "shadowStrong": "rgba(4,17,39,0.9)",
+    "shadowLight": "rgba(255,255,255,0.18)",
+    "scrimDark": "#071a38",
+    "scrimLight": "#ffffff"
+  },
+  "sampleRatios": [0, 0.2, 0.4, 0.6, 0.8],
+  "fonts": {
+    "primary": "Open Sans",
+    "wordmark": "Open Sans"
+  },
+  "closingDefaults": {
+    "accolade": {
+      "header": "",
+      "fallbackHeader": "Selected\n“MUST HAVE APP”\nby Apple",
+      "body": "Join more than\n18,000,000\npeople who have\ndownloaded Breethe.",
+      "duration": 3
+    },
+    "testimonial": {
+      "header": "“I cried the first time\nI used it because\nI had so much relief\nfrom my anxiety.”",
+      "body": "★★★★★ Maggie S.",
+      "duration": 3
+    },
+    "endcard": {
+      "header": "Breethe",
+      "body": "Feel better. Sleep better.",
+      "duration": 3
+    }
+  },
+  "motion": {
+    "compositionFade": {
+      "durationRatio": 0.16,
+      "minDuration": 0.2,
+      "maxDuration": 0.45
+    },
+    "textSlide": {
+      "durationRatio": 0.24,
+      "minDuration": 0.45,
+      "maxDuration": 0.9
+    },
+    "assetFade": {
+      "durationRatio": 0.2,
+      "minDuration": 0.3,
+      "maxDuration": 0.7
+    }
+  },
+  "sizes": {
+    "9:16": {
+      "canvas": {
+        "width": 720,
+        "height": 1280
+      },
+      "background": {
+        "x": "50%",
+        "y": "50%",
+        "width": "100%",
+        "height": "100%",
+        "x_alignment": "50%",
+        "y_alignment": "50%",
+        "fit": "cover"
+      },
+      "regions": {
+        "content": {
+          "scrim": {
+            "x": "7%",
+            "y": "8.5%",
+            "width": "84%",
+            "height": "33%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "4%"
+          },
+          "header": {
+            "regionId": "content-header",
+            "x": "8.8%",
+            "y": "11.3%",
+            "width": "82%",
+            "height": "12%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 46,
+            "font_weight": 700,
+            "line_height": "104%",
+            "text_align": "left"
+          },
+          "body": {
+            "regionId": "content-body",
+            "x": "8.8%",
+            "y": "21.2%",
+            "width": "82%",
+            "height": "22%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 37,
+            "font_weight": 600,
+            "line_height": "104%",
+            "text_align": "left"
+          },
+          "disclaimer": {
+            "regionId": "content-disclaimer",
+            "x": "8.8%",
+            "y": "81.5%",
+            "width": "82%",
+            "height": "6%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 14,
+            "font_weight": 400,
+            "line_height": "112%",
+            "text_align": "left"
+          }
+        },
+        "accolade": {
+          "scrim": {
+            "x": "18%",
+            "y": "18%",
+            "width": "64%",
+            "height": "43%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "image": {
+            "x": "50%",
+            "y": "25%",
+            "width": "58%",
+            "height": "20%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "fit": "contain"
+          },
+          "header": {
+            "regionId": "closing-accolade-body",
+            "x": "50%",
+            "y": "11%",
+            "width": "62%",
+            "height": "12%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 28,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          },
+          "body": {
+            "regionId": "closing-accolade-body",
+            "x": "50%",
+            "y": "53%",
+            "width": "64%",
+            "height": "16%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 32,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          }
+        },
+        "testimonial": {
+          "scrim": {
+            "x": "11%",
+            "y": "17%",
+            "width": "78%",
+            "height": "53%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "header": {
+            "regionId": "closing-testimonial-header",
+            "x": "50%",
+            "y": "20%",
+            "width": "82%",
+            "height": "26%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 34,
+            "font_weight": 600,
+            "line_height": "101%",
+            "text_align": "center"
+          },
+          "body": {
+            "regionId": "closing-testimonial-body",
+            "x": "50%",
+            "y": "62%",
+            "width": "55%",
+            "height": "9%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 26,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          }
+        },
+        "endcard": {
+          "scrim": {
+            "x": "16%",
+            "y": "12%",
+            "width": "68%",
+            "height": "48%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "logo": {
+            "x": "22%",
+            "y": "18.5%",
+            "width": "14%",
+            "height": "9%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "fit": "contain"
+          },
+          "header": {
+            "regionId": "closing-endcard-header",
+            "x": "31%",
+            "y": "14.5%",
+            "width": "46%",
+            "height": "8%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 40,
+            "font_weight": 400,
+            "line_height": "100%",
+            "text_align": "left"
+          },
+          "body": {
+            "regionId": "closing-endcard-body",
+            "x": "50%",
+            "y": "31.5%",
+            "width": "76%",
+            "height": "10%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 31,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          },
+          "badge": {
+            "x": "50%",
+            "y": "46.5%",
+            "width": "44%",
+            "height": "9%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "fit": "contain"
+          }
+        }
+      }
+    },
+    "4:5": {
+      "canvas": {
+        "width": 720,
+        "height": 900
+      },
+      "background": {
+        "x": "50%",
+        "y": "50%",
+        "width": "100%",
+        "height": "100%",
+        "x_alignment": "50%",
+        "y_alignment": "50%",
+        "fit": "cover"
+      },
+      "regions": {
+        "content": {
+          "scrim": {
+            "x": "8%",
+            "y": "8.5%",
+            "width": "84%",
+            "height": "34%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "header": {
+            "regionId": "content-header",
+            "x": "9.5%",
+            "y": "10.6%",
+            "width": "83%",
+            "height": "11.5%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 43,
+            "font_weight": 700,
+            "line_height": "104%",
+            "text_align": "left"
+          },
+          "body": {
+            "regionId": "content-body",
+            "x": "9.5%",
+            "y": "20.3%",
+            "width": "83%",
+            "height": "21.5%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 35,
+            "font_weight": 600,
+            "line_height": "104%",
+            "text_align": "left"
+          },
+          "disclaimer": {
+            "regionId": "content-disclaimer",
+            "x": "9.5%",
+            "y": "79.2%",
+            "width": "83%",
+            "height": "6.5%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 14,
+            "font_weight": 400,
+            "line_height": "112%",
+            "text_align": "left"
+          }
+        },
+        "accolade": {
+          "scrim": {
+            "x": "18%",
+            "y": "17%",
+            "width": "64%",
+            "height": "45%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "image": {
+            "x": "50%",
+            "y": "24%",
+            "width": "60%",
+            "height": "19%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "fit": "contain"
+          },
+          "header": {
+            "regionId": "closing-accolade-body",
+            "x": "50%",
+            "y": "11%",
+            "width": "66%",
+            "height": "12%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 26,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          },
+          "body": {
+            "regionId": "closing-accolade-body",
+            "x": "50%",
+            "y": "52%",
+            "width": "66%",
+            "height": "18%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 30,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          }
+        },
+        "testimonial": {
+          "scrim": {
+            "x": "12%",
+            "y": "18%",
+            "width": "76%",
+            "height": "54%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "header": {
+            "regionId": "closing-testimonial-header",
+            "x": "50%",
+            "y": "22%",
+            "width": "82%",
+            "height": "24%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 32,
+            "font_weight": 600,
+            "line_height": "101%",
+            "text_align": "center"
+          },
+          "body": {
+            "regionId": "closing-testimonial-body",
+            "x": "50%",
+            "y": "63%",
+            "width": "56%",
+            "height": "9%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 25,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          }
+        },
+        "endcard": {
+          "scrim": {
+            "x": "17%",
+            "y": "13%",
+            "width": "66%",
+            "height": "50%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "border_radius": "5%"
+          },
+          "logo": {
+            "x": "22%",
+            "y": "20%",
+            "width": "12%",
+            "height": "8%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "fit": "contain"
+          },
+          "header": {
+            "regionId": "closing-endcard-header",
+            "x": "31%",
+            "y": "16%",
+            "width": "42%",
+            "height": "8%",
+            "x_anchor": "0%",
+            "y_anchor": "0%",
+            "x_alignment": "0%",
+            "y_alignment": "0%",
+            "font_family": "Open Sans",
+            "font_size": 36,
+            "font_weight": 400,
+            "line_height": "100%",
+            "text_align": "left"
+          },
+          "body": {
+            "regionId": "closing-endcard-body",
+            "x": "50%",
+            "y": "34%",
+            "width": "72%",
+            "height": "10%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "font_family": "Open Sans",
+            "font_size": 28,
+            "font_weight": 700,
+            "line_height": "100%",
+            "text_align": "center"
+          },
+          "badge": {
+            "x": "50%",
+            "y": "50%",
+            "width": "40%",
+            "height": "10%",
+            "x_alignment": "50%",
+            "y_alignment": "50%",
+            "fit": "contain"
+          }
+        }
+      }
+    }
+  }
+}

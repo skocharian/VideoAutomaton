@@ -15,10 +15,9 @@ function makeMockEnv(kvStore: Record<string, string> = {}): Env {
   return {
     KV_JOBS: createMockKV(kvStore) as unknown as KVNamespace,
     CREATOMATE_API_KEY: "test",
-    TEMPLATE_9X16_ID: "t1",
-    TEMPLATE_4X5_ID: "t2",
     NOTIFY_WEBHOOK_URL: "https://hooks.example.com",
     R2_ASSETS: {} as any,
+    __STATIC_CONTENT: {} as any,
   };
 }
 

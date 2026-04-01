@@ -498,6 +498,20 @@ Feel better. Sleep better.
     expect(result.screens["11"]).toEqual({
       body: "Feel better. Sleep better.",
     });
+    expect(result.contentScreens.map((screen) => screen.key)).toEqual([
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+    ]);
+    expect(result.closingScreens.map((screen) => screen.kind)).toEqual([
+      "accolade",
+      "testimonial",
+      "endcard",
+    ]);
     expect(result.screenDurations["1"]).toBe(3);
     expect(result.screenDurations["11"]).toBe(3);
   });
@@ -551,6 +565,15 @@ describe("computeTotalDuration", () => {
       campaign_id: "AX0322",
       variants: [{ id: "V1", headline: "H1", subheadline: "S1" }],
       screens: { "2": { body: "Body" }, "3": { body: "Body" } },
+      contentScreens: [
+        { key: "2", duration: 3, body: "Body" },
+        { key: "3", duration: 4.25, body: "Body" },
+      ],
+      closingScreens: [
+        { kind: "accolade", duration: 3, header: "", body: "Downloaded Breethe." },
+        { kind: "testimonial", duration: 3, header: "Quote", body: "★★★★★ Maggie S." },
+        { kind: "endcard", duration: 3, header: "Breethe", body: "Feel better. Sleep better." },
+      ],
       screenDurations: { "1": 2.5, "2": 3, "3": 4.25 },
       backgrounds: ["bg1.mp4"],
       sizes: ["9:16"],
@@ -560,7 +583,7 @@ describe("computeTotalDuration", () => {
       logo: "",
     });
 
-    expect(total).toBe(9.75);
+    expect(total).toBe(18.75);
   });
 });
 
@@ -573,6 +596,8 @@ describe("computeVideoCount", () => {
         { id: "V2", headline: "H2", subheadline: "S2" },
       ],
       screens: {},
+      contentScreens: [],
+      closingScreens: [],
       screenDurations: {},
       backgrounds: ["bg1.mp4", "bg2.mp4", "bg3.mp4"],
       sizes: ["9:16", "4:5"],
@@ -589,6 +614,8 @@ describe("computeVideoCount", () => {
       campaign_id: "X",
       variants: [],
       screens: {},
+      contentScreens: [],
+      closingScreens: [],
       screenDurations: {},
       backgrounds: [],
       sizes: ["9:16"],

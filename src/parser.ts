@@ -1,4 +1,13 @@
-import type { ParsedBrief, ParseBriefRequest, Variant, ScreenText } from "./types";
+import type {
+  ClosingScreenKind,
+  ParsedBrief,
+  ParseBriefRequest,
+  ParsedClosingScreen,
+  ParsedContentScreen,
+  Variant,
+  ScreenText,
+} from "./types";
+import { getClosingDefaults } from "./render-layout";
 
 const DEFAULT_SLIDE_DURATION = 3;
 
@@ -21,11 +30,20 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
     screens,
     explicitDurations
   );
+  const detectedClosingScreenKeys = detectClosingScreenKeys(screens);
+  const ignoredScreenKeys = new Set(
+    Object.values(detectedClosingScreenKeys).filter(Boolean)
+  );
+  const contentScreens = buildContentScreens(screens, screenDurations, ignoredScreenKeys);
+  const closingScreens = buildClosingScreens(screenDurations, detectedClosingScreenKeys);
 
   return {
     campaign_id: campaignId,
     variants,
     screens,
+    contentScreens,
+    closingScreens,
+    detectedClosingScreenKeys,
     screenDurations,
     backgrounds,
     sizes: sizes.length > 0 ? sizes : ["9:16", "4:5"],
@@ -187,6 +205,97 @@ function extractScreens(brief: string): {
   return { screens, explicitDurations };
 }
 
+function buildContentScreens(
+  screens: Record<string, ScreenText>,
+  screenDurations: Record<string, number>,
+  ignoredKeys: Set<string>
+): ParsedContentScreen[] {
+  return Object.entries(screens)
+    .filter(([key]) => key !== "1" && !ignoredKeys.has(key))
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([key, screen]) => ({
+      key,
+      duration: screenDurations[key] ?? DEFAULT_SLIDE_DURATION,
+      header: screen.header,
+      body: screen.body,
+      disclaimer: screen.disclaimer,
+    }));
+}
+
+function buildClosingScreens(
+  screenDurations: Record<string, number>,
+  detectedClosingScreenKeys: Partial<Record<ClosingScreenKind, string>>
+): ParsedClosingScreen[] {
+  return (["accolade", "testimonial", "endcard"] as ClosingScreenKind[]).map(
+    (kind) => {
+      const defaults = getClosingDefaults(kind);
+      const detectedKey = detectedClosingScreenKeys[kind];
+      return {
+        kind,
+        duration: detectedKey
+          ? screenDurations[detectedKey] ?? defaults.duration
+          : defaults.duration,
+        header: defaults.header,
+        body: defaults.body,
+      };
+    }
+  );
+}
+
+function detectClosingScreenKeys(
+  screens: Record<string, ScreenText>
+): Partial<Record<ClosingScreenKind, string>> {
+  const detected: Partial<Record<ClosingScreenKind, string>> = {};
+  const orderedKeys = Object.keys(screens).sort((a, b) => Number(b) - Number(a));
+
+  for (const key of orderedKeys) {
+    const screen = screens[key];
+    const haystack = `${screen.header ?? ""}\n${screen.body ?? ""}\n${screen.disclaimer ?? ""}`
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+
+    if (!detected.endcard && isEndcardScreen(haystack)) {
+      detected.endcard = key;
+      continue;
+    }
+
+    if (!detected.testimonial && isTestimonialScreen(haystack)) {
+      detected.testimonial = key;
+      continue;
+    }
+
+    if (!detected.accolade && isAccoladeScreen(haystack)) {
+      detected.accolade = key;
+    }
+  }
+
+  return detected;
+}
+
+function isAccoladeScreen(haystack: string): boolean {
+  return (
+    /must have app/.test(haystack) ||
+    /downloaded breethe/.test(haystack) ||
+    (/selected/.test(haystack) && /apple/.test(haystack))
+  );
+}
+
+function isTestimonialScreen(haystack: string): boolean {
+  return (
+    /★★★★★/.test(haystack) ||
+    /maggie/.test(haystack) ||
+    (/i cried the first time/i.test(haystack) && /anxiety/.test(haystack))
+  );
+}
+
+function isEndcardScreen(haystack: string): boolean {
+  return (
+    /feel better\. sleep better\./.test(haystack) ||
+    /breethe logo/.test(haystack) ||
+    /end card/.test(haystack)
+  );
+}
+
 /**
  * Parse a single screen's text block into header/body/disclaimer.
  * If the block contains "Header:" / "Body:" labels, use those.
@@ -326,17 +435,16 @@ export function computeVideoCount(parsed: ParsedBrief): number {
 }
 
 export function computeTotalDuration(parsed: ParsedBrief): number {
-  const orderedScreens = Object.keys(parsed.screenDurations).sort(
-    (a, b) => Number(a) - Number(b)
-  );
+  const openingDuration = parsed.variants.length > 0
+    ? parsed.screenDurations["1"] ?? DEFAULT_SLIDE_DURATION
+    : 0;
+  const contentDuration = parsed.contentScreens.length
+    ? parsed.contentScreens.reduce((total, screen) => total + screen.duration, 0)
+    : 0;
+  const closingDuration = parsed.closingScreens.length
+    ? parsed.closingScreens.reduce((total, screen) => total + screen.duration, 0)
+    : 0;
+  const totalDuration = openingDuration + contentDuration + closingDuration;
 
-  if (orderedScreens.length === 0) {
-    return DEFAULT_SLIDE_DURATION;
-  }
-
-  return Number(
-    orderedScreens
-      .reduce((total, num) => total + (parsed.screenDurations[num] ?? DEFAULT_SLIDE_DURATION), 0)
-      .toFixed(2)
-  );
+  return Number(totalDuration.toFixed(2)) || DEFAULT_SLIDE_DURATION;
 }

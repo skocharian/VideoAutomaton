@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { seedBackgroundAnalysis } from "./background-analysis";
 
 export async function listAssets(
   env: Env,
@@ -33,4 +34,16 @@ export async function uploadAsset(
   await env.R2_ASSETS.put(key, body, {
     httpMetadata: { contentType },
   });
+
+  if (key.startsWith("bg/") && isAnalyzableBackgroundAsset(key, contentType)) {
+    await seedBackgroundAnalysis(env, key);
+  }
+}
+
+function isAnalyzableBackgroundAsset(key: string, contentType: string): boolean {
+  return (
+    /^video\//.test(contentType) ||
+    /^image\//.test(contentType) ||
+    /\.(mp4|mov|webm|png|jpe?g)$/i.test(key)
+  );
 }

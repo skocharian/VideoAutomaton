@@ -1,13 +1,27 @@
-import { AutoRouter, cors, json, error, type IRequest } from "itty-router";
+import { AutoRouter, cors, error, json, type IRequest } from "itty-router";
 import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
 // @ts-expect-error — virtual module injected by wrangler at build time
 import manifestJSON from "__STATIC_CONTENT_MANIFEST";
-import type { Env, ParseBriefRequest, CreatomateWebhookPayload } from "./types";
-import { parseBrief, computeVideoCount, computeTotalDuration } from "./parser";
+import type {
+  BackgroundAnalysisArtifact,
+  CreatomateWebhookPayload,
+  Env,
+  ParseBriefRequest,
+  PreviewModel,
+  RenderSize,
+} from "./types";
+import { computeTotalDuration, computeVideoCount, parseBrief } from "./parser";
 import { createRenderJobs } from "./jobs";
 import { handleWebhook, sendNotification } from "./webhook";
-import { listAssets, getUploadUrl, uploadAsset } from "./assets";
+import { getUploadUrl, listAssets, uploadAsset } from "./assets";
 import { buildRichTextSvg, decodeRichTextPayload } from "./rich-text";
+import {
+  getBackgroundAnalysisRef,
+  readBackgroundAnalysis,
+  writeBackgroundAnalysis,
+} from "./background-analysis";
+import { buildPreviewModel } from "./render-plan";
+import { getRenderLayoutConfig } from "./render-layout";
 
 const { preflight, corsify } = cors();
 
@@ -16,7 +30,6 @@ const router = AutoRouter<IRequest, [Env, ExecutionContext]>({
   finally: [corsify],
 });
 
-// ─── Parse Brief ─────────────────────────────────────────────────
 router.post("/parseBrief", async (request, env) => {
   const body = (await request.json()) as ParseBriefRequest;
 
@@ -25,6 +38,10 @@ router.post("/parseBrief", async (request, env) => {
   }
 
   const parsed = parseBrief(body);
+  parsed.backgroundAnalysis = await loadBackgroundAnalysisRefs(
+    parsed.backgrounds,
+    env
+  );
   const videoCount = computeVideoCount(parsed);
 
   return json({
@@ -40,38 +57,66 @@ router.post("/parseBrief", async (request, env) => {
   });
 });
 
-// ─── Create Jobs ─────────────────────────────────────────────────
+router.post("/previewModel", async (request, env) => {
+  const body = (await request.json()) as {
+    parsed: ReturnType<typeof parseBrief>;
+    variantIndex?: number;
+    background?: string;
+    size?: RenderSize;
+    r2PublicUrl?: string;
+  };
+
+  if (!body.parsed?.campaign_id) {
+    return error(400, "Missing parsed brief data");
+  }
+
+  const workerDomain = new URL(request.url).origin;
+  const r2PublicUrl = body.r2PublicUrl ?? `${workerDomain}/assets/public`;
+  const backgroundKey = body.background ?? body.parsed.backgrounds[0] ?? "";
+  const size = body.size ?? body.parsed.sizes[0] ?? "9:16";
+  const analysisArtifact = backgroundKey
+    ? await readBackgroundAnalysis(env, backgroundKey)
+    : null;
+
+  const previewModel: PreviewModel = buildPreviewModel({
+    parsed: body.parsed,
+    variantIndex: body.variantIndex ?? 0,
+    backgroundKey,
+    size,
+    assetBaseUrl: r2PublicUrl,
+    analysisArtifact,
+  });
+
+  return json(previewModel);
+});
+
+router.get("/render-config", () => {
+  return json(getRenderLayoutConfig());
+});
+
 router.post("/createJobs", async (request, env) => {
   const body = (await request.json()) as {
     parsed: ReturnType<typeof parseBrief>;
     r2PublicUrl?: string;
   };
 
-  if (!body.parsed || !body.parsed.campaign_id) {
+  if (!body.parsed?.campaign_id) {
     return error(400, "Missing parsed brief data");
   }
 
   const workerDomain = new URL(request.url).origin;
-  const r2PublicUrl =
-    body.r2PublicUrl ?? `${workerDomain}/assets/public`;
-
-  const result = await createRenderJobs(
-    body.parsed,
-    env,
-    workerDomain,
-    r2PublicUrl
-  );
+  const r2PublicUrl = body.r2PublicUrl ?? `${workerDomain}/assets/public`;
+  const result = await createRenderJobs(body.parsed, env, workerDomain, r2PublicUrl);
 
   return json({
     campaignId: body.parsed.campaign_id,
     totalJobs: result.jobs.length,
-    rendering: result.jobs.filter((j) => j.status === "rendering").length,
-    failed: result.jobs.filter((j) => j.status === "failed").length,
+    rendering: result.jobs.filter((job) => job.status === "rendering").length,
+    failed: result.jobs.filter((job) => job.status === "failed").length,
     errors: result.errors,
   });
 });
 
-// ─── Webhook (Creatomate callback) ──────────────────────────────
 router.post("/webhook", async (request, env) => {
   const payload = (await request.json()) as CreatomateWebhookPayload;
 
@@ -80,7 +125,6 @@ router.post("/webhook", async (request, env) => {
   }
 
   const { allDone, campaignId } = await handleWebhook(payload, env);
-
   if (allDone && campaignId) {
     await sendNotification(campaignId, env);
   }
@@ -88,7 +132,6 @@ router.post("/webhook", async (request, env) => {
   return json({ received: true });
 });
 
-// ─── Assets: List ────────────────────────────────────────────────
 router.get("/assets", async (request, env) => {
   const url = new URL(request.url);
   const prefix = url.searchParams.get("prefix") ?? undefined;
@@ -96,19 +139,15 @@ router.get("/assets", async (request, env) => {
   return json({ assets });
 });
 
-// ─── Assets: Get upload URL ──────────────────────────────────────
 router.post("/assets/uploadUrl", async (request, env) => {
   const body = (await request.json()) as { key: string };
-
   if (!body.key) {
     return error(400, "Missing 'key' field");
   }
 
-  const result = await getUploadUrl(env, body.key);
-  return json(result);
+  return json(await getUploadUrl(env, body.key));
 });
 
-// ─── Assets: Upload (proxy PUT) ──────────────────────────────────
 router.put("/assets/upload/:key", async (request, env) => {
   const key = decodeURIComponent(request.params.key);
   const contentType =
@@ -122,26 +161,44 @@ router.put("/assets/upload/:key", async (request, env) => {
   return json({ uploaded: key });
 });
 
-// ─── Assets: Serve public files ──────────────────────────────────
 router.get("/assets/public/:key+", async (request, env) => {
   const key = decodeURIComponent(request.params.key);
-  const obj = await env.R2_ASSETS.get(key);
+  const object = await env.R2_ASSETS.get(key);
 
-  if (!obj) {
+  if (!object) {
     return error(404, "Asset not found");
   }
 
   const headers = new Headers();
   headers.set(
     "Content-Type",
-    obj.httpMetadata?.contentType ?? "application/octet-stream"
+    object.httpMetadata?.contentType ?? "application/octet-stream"
   );
   headers.set("Cache-Control", "public, max-age=86400");
 
-  return new Response(obj.body, { headers });
+  return new Response(object.body, { headers });
 });
 
-// ─── Rich text SVG rendering ─────────────────────────────────────
+router.get("/analysis/background/:key+", async (request, env) => {
+  const key = decodeURIComponent(request.params.key);
+  const artifact = await readBackgroundAnalysis(env, key);
+  const ref = await getBackgroundAnalysisRef(env, key);
+  return json({ ref, artifact });
+});
+
+router.post("/analysis/background", async (request, env) => {
+  const body = (await request.json()) as {
+    artifact?: BackgroundAnalysisArtifact;
+  };
+
+  if (!body.artifact?.assetKey) {
+    return error(400, "Missing background analysis artifact");
+  }
+
+  const artifact = await writeBackgroundAnalysis(env, body.artifact);
+  return json({ artifact });
+});
+
 router.get("/rich-text.svg", (request) => {
   const url = new URL(request.url);
   const encodedPayload = url.searchParams.get("payload");
@@ -161,7 +218,6 @@ router.get("/rich-text.svg", (request) => {
   });
 });
 
-// ─── Campaign status ─────────────────────────────────────────────
 router.get("/campaign/:id", async (request, env) => {
   const campaignId = request.params.id;
   const summaryData = await env.KV_JOBS.get(`campaign:${campaignId}`);
@@ -170,11 +226,9 @@ router.get("/campaign/:id", async (request, env) => {
     return error(404, "Campaign not found");
   }
 
-  const summary = JSON.parse(summaryData);
-  return json(summary);
+  return json(JSON.parse(summaryData));
 });
 
-// ─── Export with static asset fallback ───────────────────────────
 export default {
   async fetch(
     request: Request,
@@ -182,21 +236,22 @@ export default {
     ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
-
-    // API routes handled by the router
     const apiPrefixes = [
       "/parseBrief",
+      "/render-config",
+      "/previewModel",
       "/createJobs",
       "/webhook",
       "/assets",
+      "/analysis",
       "/rich-text.svg",
       "/campaign",
     ];
-    if (apiPrefixes.some((p) => url.pathname.startsWith(p))) {
+
+    if (apiPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
       return router.fetch(request, env, ctx);
     }
 
-    // Everything else: serve static assets from Workers Sites KV
     const assetManifest = JSON.parse(manifestJSON);
     try {
       return await getAssetFromKV(
@@ -204,14 +259,13 @@ export default {
         { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest }
       );
     } catch {
-      // If no static asset found, fall back to index.html (SPA)
       try {
-        const indexReq = new Request(
+        const indexRequest = new Request(
           new URL("/index.html", request.url).toString(),
           request
         );
         return await getAssetFromKV(
-          { request: indexReq, waitUntil: ctx.waitUntil.bind(ctx) },
+          { request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) },
           { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest }
         );
       } catch {
@@ -220,3 +274,16 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+async function loadBackgroundAnalysisRefs(
+  backgrounds: string[],
+  env: Env
+): Promise<Record<string, Awaited<ReturnType<typeof getBackgroundAnalysisRef>>>> {
+  const refs = await Promise.all(
+    backgrounds.map(async (background) => [
+      background,
+      await getBackgroundAnalysisRef(env, background),
+    ] as const)
+  );
+  return Object.fromEntries(refs);
+}
