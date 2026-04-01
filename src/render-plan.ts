@@ -266,6 +266,7 @@ function buildScreenLayers(
   preview: boolean
 ): Array<PreviewLayer | RenderElement> {
   const sampleTimes = buildTimelineSampleTimes(screen.time, screen.duration);
+  const canvas = getCanvasSize(options.size);
   const isContent = screen.kind === "variant" || screen.kind === "content";
   const elementKeys = getElementKeys(screen);
 
@@ -274,7 +275,15 @@ function buildScreenLayers(
     const screenLayout = getContentLayouts(options.size);
     const layers: Array<PreviewLayer | RenderElement> = [];
 
-    pushScrimLayer(layers, preview, `Scrim_${screen.id}`, screen.duration, screenLayout.scrim, theme);
+    pushScrimLayer(
+      layers,
+      preview,
+      `Scrim_${screen.id}`,
+      screen.duration,
+      screenLayout.scrim,
+      theme,
+      canvas
+    );
     pushTextLayer(
       layers,
       preview,
@@ -324,7 +333,15 @@ function buildScreenLayers(
           ? getClosingDefaults("accolade").fallbackHeader ?? ""
           : screen.header ?? "";
 
-      pushScrimLayer(layers, preview, `Scrim_${screen.id}`, screen.duration, screenLayout.scrim, theme);
+      pushScrimLayer(
+        layers,
+        preview,
+        `Scrim_${screen.id}`,
+        screen.duration,
+        screenLayout.scrim,
+        theme,
+        canvas
+      );
       pushImageLayer(
         layers,
         preview,
@@ -368,7 +385,15 @@ function buildScreenLayers(
       const screenLayout = getClosingLayouts(options.size, "testimonial");
       const layers: Array<PreviewLayer | RenderElement> = [];
 
-      pushScrimLayer(layers, preview, `Scrim_${screen.id}`, screen.duration, screenLayout.scrim, theme);
+      pushScrimLayer(
+        layers,
+        preview,
+        `Scrim_${screen.id}`,
+        screen.duration,
+        screenLayout.scrim,
+        theme,
+        canvas
+      );
       pushTextLayer(
         layers,
         preview,
@@ -402,7 +427,15 @@ function buildScreenLayers(
       const screenLayout = getClosingLayouts(options.size, "endcard");
       const layers: Array<PreviewLayer | RenderElement> = [];
 
-      pushScrimLayer(layers, preview, `Scrim_${screen.id}`, screen.duration, screenLayout.scrim, theme);
+      pushScrimLayer(
+        layers,
+        preview,
+        `Scrim_${screen.id}`,
+        screen.duration,
+        screenLayout.scrim,
+        theme,
+        canvas
+      );
       pushImageLayer(
         layers,
         preview,
@@ -513,7 +546,8 @@ function pushScrimLayer(
   key: string,
   duration: number,
   layout: LayoutScrimConfig,
-  theme: ScreenThemeSuggestion
+  theme: ScreenThemeSuggestion,
+  canvas: { width: number; height: number }
 ): void {
   const scrim = getPreferredScrim(theme);
   if (!scrim) return;
@@ -521,7 +555,7 @@ function pushScrimLayer(
   layers.push(
     preview
       ? buildPreviewShapeLayer(key, layout, scrim)
-      : buildRenderShapeElement(key, duration, layout, scrim)
+      : buildRenderShapeElement(key, duration, layout, scrim, canvas)
   );
 }
 
@@ -721,7 +755,8 @@ function buildRenderShapeElement(
   key: string,
   duration: number,
   layout: LayoutScrimConfig,
-  theme: ThemeSuggestion
+  theme: ThemeSuggestion,
+  canvas: { width: number; height: number }
 ): RenderElement {
   return {
     name: key,
@@ -739,10 +774,32 @@ function buildRenderShapeElement(
     ...(layout.y_alignment ? { y_alignment: layout.y_alignment } : {}),
     fill_color: theme.scrimColor ?? "#071a38",
     opacity: `${Math.round((theme.scrimOpacity ?? 0.2) * 100)}%`,
-    border_radius: layout.border_radius ?? "0%",
+    border_radius: convertBorderRadiusForRender(layout.border_radius, canvas),
     path: "M 0% 0% L 100% 0% L 100% 100% L 0% 100% Z",
     animations: buildAssetFadeAnimations(duration),
   };
+}
+
+function convertBorderRadiusForRender(
+  borderRadius: string | undefined,
+  canvas: { width: number; height: number }
+): string {
+  if (!borderRadius?.trim()) {
+    return "0px";
+  }
+
+  const value = borderRadius.trim();
+  if (!value.endsWith("%")) {
+    return value;
+  }
+
+  const numeric = Number.parseFloat(value.slice(0, -1));
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "0px";
+  }
+
+  const px = (Math.min(canvas.width, canvas.height) * numeric) / 100;
+  return `${Math.round(px)}px`;
 }
 
 function getPreferredScrim(theme: ScreenThemeSuggestion): ThemeSuggestion | null {

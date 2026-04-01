@@ -267,13 +267,21 @@ function makeEnv() {
 
 describe("buildRenderScriptDocument", () => {
   it("builds a full RenderScript document with dynamic content screens and fixed branded closing screens", () => {
+    const analysisArtifact = makeArtifact({
+      "9:16": makeSizeData([], {
+        "content-header": "white-scrim",
+        "content-body": "white-scrim",
+        "content-disclaimer": "white-scrim",
+      }),
+    });
+
     const document = buildRenderScriptDocument({
       parsed: makeParsed(),
       variantIndex: 0,
       backgroundKey: "bg/PinkTrees.mp4",
       size: "9:16",
       assetBaseUrl,
-      analysisArtifact: null,
+      analysisArtifact,
     });
 
     expect(document.duration).toBe(23.5);
@@ -295,6 +303,9 @@ describe("buildRenderScriptDocument", () => {
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Body")?.text).toContain(
       "18,000,000"
     );
+
+    const contentComposition = getComposition(document, "Screen_2");
+    expect(getNestedElement(contentComposition, "Scrim_content-2")?.border_radius).toBe("29px");
 
     const endcardComposition = getComposition(document, "Screen_7");
     expect(getNestedElement(endcardComposition, "Closing_Endcard_Logo")).toBeDefined();
