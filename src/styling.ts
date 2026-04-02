@@ -98,6 +98,46 @@ const stylingSchema = {
   required: ["recommendations"],
 } as const;
 
+type OutputContentItem =
+  | {
+      type?: string;
+      text?: string;
+    }
+  | {
+      type?: string;
+      refusal?: string;
+    };
+
+type ResponsesApiPayload = {
+  model: string;
+  input: Array<{
+    role: "system" | "user";
+    content: Array<
+      | {
+          type: "input_text";
+          text: string;
+        }
+      | {
+          type: "input_image";
+          image_url: string;
+          detail: "high";
+        }
+    >;
+  }>;
+  text: {
+    format:
+      | {
+          type: "json_schema";
+          name: string;
+          strict: true;
+          schema: typeof stylingSchema;
+        }
+      | {
+          type: "json_object";
+        };
+  };
+};
+
 export async function suggestStyling(
   env: Env,
   payload: StylingSuggestionRequest
@@ -107,21 +147,80 @@ export async function suggestStyling(
   }
 
   const model = env.OPENAI_STYLING_MODEL || "gpt-5.4";
-  const body = {
+  let response = await callOpenAIStyling(env.OPENAI_API_KEY, buildRequestBody(model, payload, true));
+
+  if (!response.ok && response.status === 400) {
+    response = await callOpenAIStyling(env.OPENAI_API_KEY, buildRequestBody(model, payload, false));
+  }
+
+  if (!response.ok) {
+    throw new Error(await buildOpenAIErrorMessage(response));
+  }
+
+  const data = (await response.json()) as {
+    output?: Array<{
+      type?: string;
+      content?: OutputContentItem[];
+    }>;
+  };
+
+  const content = extractResponseText(data);
+  if (!content) {
+    throw new Error("OpenAI styling response was empty");
+  }
+
+  const parsed = JSON.parse(content) as StylingSuggestionResponse;
+  return sanitizeStylingSuggestions(parsed);
+}
+
+function buildRequestBody(
+  model: string,
+  payload: StylingSuggestionRequest,
+  useStructuredOutputs: boolean
+): ResponsesApiPayload {
+  return {
     model,
-    messages: [
+    input: [
       {
         role: "system",
-        content:
-          "You are a direct response ad designer. Return only valid JSON that follows the schema. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. Use only these text colors when possible: #ffffff, #87f1f7, #0c2340. Do not invent new layer keys. Prefer minimal changes when the current layout is already strong. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
+        content: [
+          {
+            type: "input_text",
+            text:
+              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. Use only these text colors when possible: #ffffff, #87f1f7, #0c2340. Do not invent new layer keys. Prefer minimal changes when the current layout is already strong. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
+          },
+        ],
       },
       {
         role: "user",
         content: [
           {
-            type: "text",
+            type: "input_text",
             text:
               "Recommend styling overrides for these ad slides.\n" +
+              "Return JSON matching this shape exactly: " +
+              JSON.stringify(
+                {
+                  recommendations: [
+                    {
+                      slideId: "string",
+                      confidence: 0.0,
+                      reason: "string",
+                      scrim: { enabled: true },
+                      layers: [
+                        {
+                          key: "string",
+                          fontSize: 42,
+                          color: "#ffffff",
+                          x: "8%",
+                          y: "16%",
+                        },
+                      ],
+                    },
+                  ],
+                }
+              ) +
+              "\nInput:\n" +
               JSON.stringify(
                 {
                   size: payload.size,
@@ -134,52 +233,84 @@ export async function suggestStyling(
               ),
           },
           {
-            type: "image_url",
-            image_url: {
-              url: payload.backgroundImage,
-            },
+            type: "input_image",
+            image_url: payload.backgroundImage,
+            detail: "high",
           },
         ],
       },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "styling_recommendation",
-        strict: true,
-        schema: stylingSchema,
-      },
+    text: {
+      format: useStructuredOutputs
+        ? {
+            type: "json_schema",
+            name: "styling_recommendation",
+            strict: true,
+            schema: stylingSchema,
+          }
+        : {
+            type: "json_object",
+          },
     },
   };
+}
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+function callOpenAIStyling(apiKey: string, body: ResponsesApiPayload): Promise<Response> {
+  return fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
   });
+}
 
-  if (!response.ok) {
-    throw new Error(`OpenAI styling error: ${response.status}`);
-  }
+async function buildOpenAIErrorMessage(response: Response): Promise<string> {
+  const fallback = `OpenAI styling error: ${response.status}`;
 
-  const data = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
+  try {
+    const data = (await response.json()) as {
+      error?: {
+        message?: string;
+        code?: string;
       };
-    }>;
-  };
+    };
+    const message = data.error?.message?.trim();
+    const code = data.error?.code?.trim();
+    if (!message) {
+      return fallback;
+    }
+    return code ? `${fallback} (${code}) - ${message}` : `${fallback} - ${message}`;
+  } catch {
+    try {
+      const text = (await response.text()).trim();
+      return text ? `${fallback} - ${text}` : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+}
 
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenAI styling response was empty");
+function extractResponseText(data: {
+  output?: Array<{
+    type?: string;
+    content?: OutputContentItem[];
+  }>;
+}): string {
+  for (const item of data.output || []) {
+    if (item.type !== "message") continue;
+    for (const content of item.content || []) {
+      if (content.type === "output_text" && "text" in content && typeof content.text === "string") {
+        return content.text;
+      }
+      if (content.type === "refusal" && "refusal" in content) {
+        throw new Error(`OpenAI styling refusal: ${content.refusal || "Request refused"}`);
+      }
+    }
   }
 
-  const parsed = JSON.parse(content) as StylingSuggestionResponse;
-  return sanitizeStylingSuggestions(parsed);
+  return "";
 }
 
 function sanitizeStylingSuggestions(
