@@ -314,6 +314,7 @@
       position: relative;
       border-radius: 22px;
       overflow: hidden;
+      container-type: size;
       box-shadow: 0 16px 28px rgba(17, 43, 70, 0.16);
       background: linear-gradient(180deg, #7897bc 0%, #153d69 100%);
       aspect-ratio: 9 / 16;
@@ -1592,7 +1593,6 @@
         replaceTextLayer(slide, "S1_Header", variant.headline || "");
         replaceTextLayer(slide, "S1_Body", variant.subheadline || "");
         container.innerHTML = renderPreviewCard(slide, backgroundMedia, {
-          scale: 0.28,
           showDuration: false,
         });
       });
@@ -1601,7 +1601,7 @@
         const key = container.dataset.screenPreview;
         const slide = previewModelData.slides.find((item) => item.sourceKey === key);
         container.innerHTML = slide
-          ? renderPreviewCard(slide, backgroundMedia, { scale: 0.28, showDuration: false })
+          ? renderPreviewCard(slide, backgroundMedia, { showDuration: false })
           : "";
       });
 
@@ -1609,21 +1609,25 @@
         const kind = container.dataset.closingPreview;
         const slide = previewModelData.slides.find((item) => item.kind === kind);
         container.innerHTML = slide
-          ? renderPreviewCard(slide, backgroundMedia, { scale: 0.28, showDuration: false })
+          ? renderPreviewCard(slide, backgroundMedia, { showDuration: false })
           : "";
       });
     }
 
     function renderPreviewCard(slide, backgroundMedia, options = {}) {
       const size = previewState.size || "9:16";
-      const scale = Number.isFinite(options.scale) ? options.scale : 0.32;
       const showDuration = options.showDuration !== false;
+      const canvas = getPreviewCanvasSize(size);
       const layersHtml = (slide.layers || [])
         .map((layer) => renderPreviewLayer(layer))
         .join("");
 
       return `
-        <div class="preview-card" data-size="${escapeHtml(size)}" style="--preview-scale:${escapeHtml(String(scale))};">
+        <div
+          class="preview-card"
+          data-size="${escapeHtml(size)}"
+          style="--preview-canvas-width:${escapeHtml(String(canvas.width))}; --preview-canvas-height:${escapeHtml(String(canvas.height))};"
+        >
           <div class="preview-media">
             ${backgroundMedia?.src ? `<img src="${escapeHtml(backgroundMedia.src)}" alt="Background preview" loading="lazy" />` : ""}
           </div>
@@ -1675,7 +1679,7 @@
             ${sharedStyle}
             color:${escapeHtml(layer.color || "#ffffff")};
             font-family:${escapeHtml(layer.fontFamily || "Open Sans")};
-            font-size:calc(${escapeHtml(String(layer.fontSize || 28))}px * var(--preview-scale));
+            font-size:calc(${escapeHtml(String(layer.fontSize || 28))} * 100cqh / var(--preview-canvas-height));
             font-weight:${escapeHtml(String(layer.fontWeight || 600))};
             line-height:${escapeHtml(layer.lineHeight || "100%")};
             text-align:${escapeHtml(layer.textAlign || "left")};
@@ -1696,6 +1700,15 @@
 
     function clonePreviewSlide(slide) {
       return JSON.parse(JSON.stringify(slide));
+    }
+
+    function getPreviewCanvasSize(size) {
+      const canvas = renderConfig?.sizes?.[size]?.canvas;
+      if (canvas?.width && canvas?.height) {
+        return canvas;
+      }
+
+      return size === "4:5" ? { width: 720, height: 900 } : { width: 720, height: 1280 };
     }
 
     function replaceTextLayer(slide, layerKey, value) {
