@@ -55,6 +55,12 @@
         "width": 720,
         "height": 1280
       },
+      "safeZone": {
+        "top": 14,
+        "right": 21,
+        "bottom": 40,
+        "left": 6
+      },
       "background": {
         "x": "50%",
         "y": "50%",

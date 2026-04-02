@@ -10,7 +10,9 @@ import {
   getClosingLayouts,
   getContentLayouts,
   getRenderLayoutConfig,
+  getSafeZone,
   type LayoutImageConfig,
+  type LayoutSafeZoneConfig,
   type LayoutScrimConfig,
   type LayoutTextConfig,
 } from "./render-layout";
@@ -272,6 +274,7 @@ function buildScreenLayers(
 ): Array<PreviewLayer | RenderElement> {
   const sampleTimes = buildTimelineSampleTimes(screen.time, screen.duration);
   const canvas = getCanvasSize(options.size);
+  const safeZone = getSafeZone(options.size);
   const isContent = screen.kind === "variant" || screen.kind === "content";
   const elementKeys = getElementKeys(screen);
 
@@ -290,7 +293,8 @@ function buildScreenLayers(
       screen,
       elementKeys,
       options.parsed.textOverrides,
-      canvas
+      canvas,
+      safeZone
     );
 
     pushScrimLayer(
@@ -346,6 +350,18 @@ function buildScreenLayers(
       );
       const screenLayout = getClosingLayouts(options.size, "accolade");
       const layers: Array<PreviewLayer | RenderElement> = [];
+      const resolvedHeaderLayout = applyTextSafeZone(
+        screenLayout.header,
+        safeZone
+      );
+      const resolvedBodyLayout = applyTextSafeZone(
+        screenLayout.body,
+        safeZone
+      );
+      const resolvedImageLayout = applyImageSafeZone(
+        screenLayout.image,
+        safeZone
+      );
       const headerText =
         options.parsed.accolade
           ? ""
@@ -368,7 +384,7 @@ function buildScreenLayers(
         elementKeys.image ?? "Closing_Accolade_Image",
         screen.duration,
         3,
-        screenLayout.image,
+        resolvedImageLayout,
         options.parsed.accolade
           ? assetUrl(options.assetBaseUrl, options.parsed.accolade)
           : ""
@@ -379,7 +395,7 @@ function buildScreenLayers(
         elementKeys.header,
         screen.duration,
         5,
-        screenLayout.header,
+        resolvedHeaderLayout,
         options.parsed.textOverrides,
         headerText,
         theme.header
@@ -390,7 +406,7 @@ function buildScreenLayers(
         elementKeys.body,
         screen.duration,
         4,
-        screenLayout.body,
+        resolvedBodyLayout,
         options.parsed.textOverrides,
         screen.body ?? "",
         theme.body
@@ -407,6 +423,14 @@ function buildScreenLayers(
       );
       const screenLayout = getClosingLayouts(options.size, "testimonial");
       const layers: Array<PreviewLayer | RenderElement> = [];
+      const resolvedHeaderLayout = applyTextSafeZone(
+        screenLayout.header,
+        safeZone
+      );
+      const resolvedBodyLayout = applyTextSafeZone(
+        screenLayout.body,
+        safeZone
+      );
 
       pushScrimLayer(
         layers,
@@ -423,7 +447,7 @@ function buildScreenLayers(
         elementKeys.header,
         screen.duration,
         5,
-        screenLayout.header,
+        resolvedHeaderLayout,
         options.parsed.textOverrides,
         screen.header ?? "",
         theme.header
@@ -434,7 +458,7 @@ function buildScreenLayers(
         elementKeys.body,
         screen.duration,
         4,
-        screenLayout.body,
+        resolvedBodyLayout,
         options.parsed.textOverrides,
         screen.body ?? "",
         theme.body
@@ -451,6 +475,22 @@ function buildScreenLayers(
       );
       const screenLayout = getClosingLayouts(options.size, "endcard");
       const layers: Array<PreviewLayer | RenderElement> = [];
+      const resolvedLogoLayout = applyImageSafeZone(
+        screenLayout.logo,
+        safeZone
+      );
+      const resolvedHeaderLayout = applyTextSafeZone(
+        screenLayout.header,
+        safeZone
+      );
+      const resolvedBodyLayout = applyTextSafeZone(
+        screenLayout.body,
+        safeZone
+      );
+      const resolvedBadgeLayout = applyImageSafeZone(
+        screenLayout.badge,
+        safeZone
+      );
 
       pushScrimLayer(
         layers,
@@ -467,7 +507,7 @@ function buildScreenLayers(
         elementKeys.logo ?? "Closing_Endcard_Logo",
         screen.duration,
         3,
-        screenLayout.logo,
+        resolvedLogoLayout,
         options.parsed.logo ? assetUrl(options.assetBaseUrl, options.parsed.logo) : ""
       );
       pushTextLayer(
@@ -476,7 +516,7 @@ function buildScreenLayers(
         elementKeys.header,
         screen.duration,
         5,
-        screenLayout.header,
+        resolvedHeaderLayout,
         options.parsed.textOverrides,
         screen.header ?? "",
         theme.header
@@ -487,7 +527,7 @@ function buildScreenLayers(
         elementKeys.body,
         screen.duration,
         4,
-        screenLayout.body,
+        resolvedBodyLayout,
         options.parsed.textOverrides,
         screen.body ?? "",
         theme.body
@@ -498,7 +538,7 @@ function buildScreenLayers(
         elementKeys.badge ?? "Closing_Endcard_Badge",
         screen.duration,
         2,
-        screenLayout.badge,
+        resolvedBadgeLayout,
         options.parsed.badge
           ? assetUrl(options.assetBaseUrl, options.parsed.badge)
           : ""
@@ -871,7 +911,8 @@ function buildContentFlowLayouts(
   screen: TimelineScreen,
   elementKeys: ElementKeys,
   overrides: ParsedBrief["textOverrides"] | undefined,
-  canvas: { width: number; height: number }
+  canvas: { width: number; height: number },
+  safeZone?: LayoutSafeZoneConfig
 ): {
   header?: LayoutTextConfig;
   body?: LayoutTextConfig;
@@ -885,15 +926,28 @@ function buildContentFlowLayouts(
   const bodyOverride = getTextOverride(elementKeys.body, overrides);
   const disclaimerOverride = getTextOverride(elementKeys.disclaimer, overrides);
 
-  const header = resolveTextLayout(screenLayout.header, headerOverride);
-  const body = resolveTextLayout(screenLayout.body, bodyOverride);
-  const disclaimer = resolveTextLayout(screenLayout.disclaimer, disclaimerOverride);
+  const header = applyTextSafeZone(
+    resolveTextLayout(screenLayout.header, headerOverride),
+    safeZone
+  );
+  const body = applyTextSafeZone(
+    resolveTextLayout(screenLayout.body, bodyOverride),
+    safeZone
+  );
+  const disclaimer = applyTextSafeZone(
+    resolveTextLayout(screenLayout.disclaimer, disclaimerOverride),
+    safeZone
+  );
 
   const scrimTop = parsePercent(screenLayout.scrim.y);
-  const scrimBottom = scrimTop + parsePercent(screenLayout.scrim.height);
-  const mainTop = scrimTop + 2.1;
-  const mainBottom = scrimBottom - 2.4;
+  const safeTop = safeZone?.top ?? 0;
+  const safeBottom = safeZone ? 100 - safeZone.bottom : 100;
+  const mainTop = Math.max(scrimTop + 2.1, safeTop + 0.8);
   const gapPct = pixelsToPercent(Math.max(12, canvas.height * 0.012), canvas.height);
+  const disclaimerReserve = stripRichTextMarkup(disclaimerText).trim()
+    ? parsePercent(disclaimer.height) + gapPct + 0.8
+    : 0;
+  const mainBottom = Math.max(mainTop + 8, safeBottom - disclaimerReserve);
 
   let fittedHeader: LayoutTextConfig | undefined;
   let fittedBody: LayoutTextConfig | undefined;
@@ -948,15 +1002,32 @@ function buildContentFlowLayouts(
   }
 
   const fittedDisclaimer = stripRichTextMarkup(disclaimerText).trim()
-    ? fitTextToBox(disclaimer, disclaimerText, canvas, {
-        minScale: 0.9,
-        minimumHeight: disclaimer.height,
-      })
+    ? (() => {
+        const disclaimerLayout = fitTextToBox(disclaimer, disclaimerText, canvas, {
+          minScale: 0.9,
+          minimumHeight: disclaimer.height,
+        });
+        const disclaimerHeight = parsePercent(disclaimerLayout.height);
+        const disclaimerY = Math.max(
+          fittedBody
+            ? parsePercent(fittedBody.y) + parsePercent(fittedBody.height) + gapPct
+            : mainTop,
+          safeBottom - disclaimerHeight
+        );
+
+        return applyTextSafeZone(
+          {
+            ...disclaimerLayout,
+            y: formatPercent(disclaimerY),
+          },
+          safeZone
+        );
+      })()
     : undefined;
 
   return {
-    header: fittedHeader,
-    body: fittedBody,
+    header: fittedHeader ? applyTextSafeZone(fittedHeader, safeZone) : undefined,
+    body: fittedBody ? applyTextSafeZone(fittedBody, safeZone) : undefined,
     disclaimer: fittedDisclaimer,
   };
 }
@@ -1069,6 +1140,99 @@ function estimateWrappedLineCount(
 
       return lineCount + paragraphLines;
     }, 0);
+}
+
+function applyTextSafeZone(
+  layout: LayoutTextConfig,
+  safeZone: LayoutSafeZoneConfig | undefined
+): LayoutTextConfig {
+  if (!safeZone) {
+    return layout;
+  }
+
+  const bounds = getSafeZoneBox(layout, safeZone);
+
+  return {
+    ...layout,
+    x: formatPercent(resolveAlignedCoordinate(bounds.left, bounds.width, layout.x_alignment)),
+    y: formatPercent(resolveAlignedCoordinate(bounds.top, bounds.height, layout.y_alignment)),
+    width: formatPercent(bounds.width),
+    height: formatPercent(bounds.height),
+  };
+}
+
+function applyImageSafeZone(
+  layout: LayoutImageConfig,
+  safeZone: LayoutSafeZoneConfig | undefined
+): LayoutImageConfig {
+  if (!safeZone) {
+    return layout;
+  }
+
+  const bounds = getSafeZoneBox(layout, safeZone);
+
+  return {
+    ...layout,
+    x: formatPercent(resolveAlignedCoordinate(bounds.left, bounds.width, layout.x_alignment)),
+    y: formatPercent(resolveAlignedCoordinate(bounds.top, bounds.height, layout.y_alignment)),
+    width: formatPercent(bounds.width),
+    height: formatPercent(bounds.height),
+  };
+}
+
+function getSafeZoneBox(
+  layout: { x: string; y: string; width: string; height: string; x_alignment?: string; y_alignment?: string },
+  safeZone: LayoutSafeZoneConfig
+): {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+} {
+  const minLeft = safeZone.left;
+  const minTop = safeZone.top;
+  const maxRight = 100 - safeZone.right;
+  const maxBottom = 100 - safeZone.bottom;
+
+  const width = Math.min(parsePercent(layout.width), maxRight - minLeft);
+  const height = Math.min(parsePercent(layout.height), maxBottom - minTop);
+
+  const left = clamp(
+    resolveAlignedStart(parsePercent(layout.x), width, layout.x_alignment),
+    minLeft,
+    maxRight - width
+  );
+  const top = clamp(
+    resolveAlignedStart(parsePercent(layout.y), height, layout.y_alignment),
+    minTop,
+    maxBottom - height
+  );
+
+  return { left, top, width, height };
+}
+
+function resolveAlignedStart(value: number, size: number, alignment?: string): number {
+  if (alignment === "50%") {
+    return value - size / 2;
+  }
+  if (alignment === "100%") {
+    return value - size;
+  }
+  return value;
+}
+
+function resolveAlignedCoordinate(
+  start: number,
+  size: number,
+  alignment?: string
+): number {
+  if (alignment === "50%") {
+    return start + size / 2;
+  }
+  if (alignment === "100%") {
+    return start + size;
+  }
+  return start;
 }
 
 function getTextOverride(

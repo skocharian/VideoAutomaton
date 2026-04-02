@@ -194,6 +194,50 @@ function parsePercent(value: string | number | undefined): number {
   return Number.parseFloat(value.replace("%", ""));
 }
 
+function getPercentBounds(
+  element:
+    | {
+        x?: string | number;
+        y?: string | number;
+        width?: string | number;
+        height?: string | number;
+        x_alignment?: string;
+        y_alignment?: string;
+      }
+    | {
+        x?: string | number;
+        y?: string | number;
+        width?: string | number;
+        height?: string | number;
+        xAlignment?: string;
+        yAlignment?: string;
+      }
+    | undefined
+) {
+  const width = parsePercent(element?.width);
+  const height = parsePercent(element?.height);
+  const x = parsePercent(element?.x);
+  const y = parsePercent(element?.y);
+  const xAlignment =
+    "x_alignment" in (element ?? {})
+      ? (element as { x_alignment?: string }).x_alignment
+      : (element as { xAlignment?: string } | undefined)?.xAlignment;
+  const yAlignment =
+    "y_alignment" in (element ?? {})
+      ? (element as { y_alignment?: string }).y_alignment
+      : (element as { yAlignment?: string } | undefined)?.yAlignment;
+
+  const left = xAlignment === "50%" ? x - width / 2 : xAlignment === "100%" ? x - width : x;
+  const top = yAlignment === "50%" ? y - height / 2 : yAlignment === "100%" ? y - height : y;
+
+  return {
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+  };
+}
+
 function createMockKV(store: Record<string, string> = {}) {
   return {
     store,
@@ -413,16 +457,54 @@ describe("buildRenderScriptDocument", () => {
     const renderHeader = getNestedElement(renderScreen, "S3_Header");
     const renderBody = getNestedElement(renderScreen, "S3_Body");
 
-    expect(previewHeader?.x).toBe("12%");
-    expect(previewHeader?.y).toBe("14%");
+    expect(previewHeader?.x).toBe(renderHeader?.x);
+    expect(previewHeader?.y).toBe(renderHeader?.y);
     expect(previewHeader?.fontSize).toBe(52);
     expect(previewHeader?.color).toBe("#ffcc00");
 
-    expect(renderHeader?.x).toBe("12%");
-    expect(renderHeader?.y).toBe("14%");
+    expect(parsePercent(previewHeader?.x)).toBeGreaterThanOrEqual(6);
+    expect(parsePercent(previewHeader?.y)).toBeGreaterThanOrEqual(14);
     expect(renderHeader?.font_size).toBe(52);
     expect(renderHeader?.fill_color).toBe("#ffcc00");
     expect(renderHeader?.track).not.toBe(renderBody?.track);
+  });
+
+  it("keeps 9:16 key creative inside the configured safe zone", () => {
+    const preview = buildPreviewModel({
+      parsed: makeParsed(),
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const openingSlide = preview.slides.find((slide) => slide.kind === "variant");
+    const openingHeader = openingSlide?.layers.find((layer) => layer.key === "S1_Header");
+    const disclaimerSlide = preview.slides.find((slide) => slide.sourceKey === "8");
+    const disclaimer = disclaimerSlide?.layers.find((layer) => layer.key === "S8_Disclaimer");
+    const endcardSlide = preview.slides.find((slide) => slide.kind === "endcard");
+    const badge = endcardSlide?.layers.find((layer) => layer.key === "Closing_Endcard_Badge");
+
+    const safeZone = {
+      left: 6,
+      top: 14,
+      right: 79,
+      bottom: 60,
+    };
+
+    const openingHeaderBounds = getPercentBounds(openingHeader);
+    expect(openingHeaderBounds.left).toBeGreaterThanOrEqual(safeZone.left);
+    expect(openingHeaderBounds.top).toBeGreaterThanOrEqual(safeZone.top);
+    expect(openingHeaderBounds.right).toBeLessThanOrEqual(safeZone.right);
+
+    const disclaimerBounds = getPercentBounds(disclaimer);
+    expect(disclaimerBounds.bottom).toBeLessThanOrEqual(safeZone.bottom);
+
+    const badgeBounds = getPercentBounds(badge);
+    expect(badgeBounds.left).toBeGreaterThanOrEqual(safeZone.left);
+    expect(badgeBounds.right).toBeLessThanOrEqual(safeZone.right);
+    expect(badgeBounds.bottom).toBeLessThanOrEqual(safeZone.bottom);
   });
 
   it("flows long content copy so body starts below the fitted header and body-only screens move up", () => {

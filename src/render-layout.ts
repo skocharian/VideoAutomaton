@@ -44,11 +44,19 @@ type LayoutScrimConfig = {
   border_radius?: string;
 };
 
+type LayoutSafeZoneConfig = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
+
 type LayoutSizeConfig = {
   canvas: {
     width: number;
     height: number;
   };
+  safeZone?: LayoutSafeZoneConfig;
   background: LayoutImageConfig;
   regions: {
     content: {
@@ -131,6 +139,10 @@ export function getCanvasSize(size: RenderSize): {
   return getRenderSizeConfig(size).canvas;
 }
 
+export function getSafeZone(size: RenderSize): LayoutSafeZoneConfig | undefined {
+  return getRenderSizeConfig(size).safeZone;
+}
+
 export function getClosingDefaults(kind: ClosingScreenKind): {
   header: string;
   fallbackHeader?: string;
@@ -169,6 +181,7 @@ export function getClosingLayouts(
 export type {
   LayoutImageConfig,
   LayoutScrimConfig,
+  LayoutSafeZoneConfig,
   LayoutSizeConfig,
   LayoutTextConfig,
   RenderLayoutConfig,

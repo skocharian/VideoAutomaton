@@ -378,6 +378,15 @@
       pointer-events: none;
     }
 
+    .preview-safe-zone {
+      position: absolute;
+      pointer-events: none;
+      border: 1px dashed rgba(255, 255, 255, 0.72);
+      box-shadow: inset 0 0 0 1px rgba(7, 26, 56, 0.18);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
     .preview-duration {
       align-self: flex-start;
       padding: 0.18rem 0.5rem;
@@ -1618,6 +1627,7 @@
       const size = previewState.size || "9:16";
       const showDuration = options.showDuration !== false;
       const canvas = getPreviewCanvasSize(size);
+      const safeZone = renderConfig?.sizes?.[size]?.safeZone;
       const layersHtml = (slide.layers || [])
         .map((layer) => renderPreviewLayer(layer))
         .join("");
@@ -1633,6 +1643,7 @@
           </div>
           <div class="preview-overlay">
             ${showDuration ? `<div class="preview-duration">${formatSeconds(slide.duration)}</div>` : ""}
+            ${safeZone ? renderPreviewSafeZone(safeZone) : ""}
             ${layersHtml}
             <div class="preview-screen-label">S${escapeHtml(String(slide.displayIndex))}</div>
           </div>
@@ -1709,6 +1720,25 @@
       }
 
       return size === "4:5" ? { width: 720, height: 900 } : { width: 720, height: 1280 };
+    }
+
+    function renderPreviewSafeZone(safeZone) {
+      const left = Number.isFinite(safeZone?.left) ? safeZone.left : 0;
+      const top = Number.isFinite(safeZone?.top) ? safeZone.top : 0;
+      const right = Number.isFinite(safeZone?.right) ? safeZone.right : 0;
+      const bottom = Number.isFinite(safeZone?.bottom) ? safeZone.bottom : 0;
+
+      return `
+        <div
+          class="preview-safe-zone"
+          style="
+            left:${escapeHtml(String(left))}%;
+            top:${escapeHtml(String(top))}%;
+            width:${escapeHtml(String(100 - left - right))}%;
+            height:${escapeHtml(String(100 - top - bottom))}%;
+          "
+        ></div>
+      `;
     }
 
     function replaceTextLayer(slide, layerKey, value) {
