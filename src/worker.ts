@@ -165,7 +165,16 @@ router.post("/prepareBackgrounds", async (request, env) => {
   }
 
   const workerDomain = new URL(request.url).origin;
+  console.log("prepareBackgrounds:start", {
+    campaignId: body.parsed.campaign_id,
+    backgrounds: body.parsed.backgrounds,
+    backgroundSettings: body.parsed.backgroundSettings,
+  });
   const prepared = await prepareBackgroundVariants(body.parsed, env, workerDomain);
+  console.log("prepareBackgrounds:result", {
+    campaignId: body.parsed.campaign_id,
+    prepared,
+  });
 
   return json({
     preparedBackgrounds: Object.fromEntries(
@@ -189,6 +198,8 @@ router.post("/prepareBackgrounds/status", async (request, env) => {
   if (!body.background || !body.preparedKey || !Number.isFinite(body.speed) || !body.status) {
     return error(400, "Missing background speed preparation status payload");
   }
+
+  console.log("prepareBackgrounds:status", body);
 
   await writeBackgroundSpeedPreparationState(env, {
     background: body.background,
