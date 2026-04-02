@@ -596,6 +596,10 @@ function buildScreenLayers(
         screenLayout.badge,
         safeZone
       );
+      const headerText = resolveEndcardHeaderText(
+        screen.header ?? "",
+        options.parsed.logo
+      );
 
       if (isScrimEnabled(screen.id, styleProfile)) {
         pushScrimLayer(
@@ -625,7 +629,7 @@ function buildScreenLayers(
         5,
         resolvedHeaderLayout,
         styleProfile.textOverrides,
-        screen.header ?? "",
+        headerText,
         theme.header
       );
       pushTextLayer(
@@ -1641,6 +1645,19 @@ function getAccoladeImageColor(
   return normalizeTintHexColor(
     accentOverride || theme.body?.fillColor || theme.header?.fillColor || "#ffffff"
   );
+}
+
+function resolveEndcardHeaderText(headerText: string, logoKey: string): string {
+  const cleanHeader = stripRichTextMarkup(headerText).trim();
+  if (!cleanHeader) {
+    return logoKey ? "" : getClosingDefaults("endcard").fallbackHeader ?? "";
+  }
+
+  if (logoKey && cleanHeader.toLowerCase() === "breethe") {
+    return "";
+  }
+
+  return headerText;
 }
 
 function getImageOverride(
