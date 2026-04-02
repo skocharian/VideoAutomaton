@@ -30,7 +30,7 @@ import { BackgroundAnalyzer, triggerBackgroundAnalysis } from "./container";
 import { buildPreviewModel } from "./render-plan";
 import { getRenderLayoutConfig } from "./render-layout";
 import { suggestStyling, type StylingSuggestionRequest } from "./styling";
-import { getBackgroundSpeed } from "./speed";
+import { getBackgroundSpeed, prepareBackgroundVariants } from "./speed";
 import { buildTintedAssetSvg, normalizeTintHexColor } from "./tinted-assets";
 
 const { preflight, corsify } = cors();
@@ -125,6 +125,7 @@ router.post("/createJobs", async (request, env) => {
   const body = (await request.json()) as {
     parsed: ReturnType<typeof parseBrief>;
     r2PublicUrl?: string;
+    preparedBackgrounds?: Record<string, string>;
   };
 
   if (!body.parsed?.campaign_id) {
@@ -133,7 +134,13 @@ router.post("/createJobs", async (request, env) => {
 
   const workerDomain = new URL(request.url).origin;
   const r2PublicUrl = body.r2PublicUrl ?? `${workerDomain}/assets/public`;
-  const result = await createRenderJobs(body.parsed, env, workerDomain, r2PublicUrl);
+  const result = await createRenderJobs(
+    body.parsed,
+    env,
+    workerDomain,
+    r2PublicUrl,
+    body.preparedBackgrounds ?? {}
+  );
 
   return json({
     campaignId: body.parsed.campaign_id,
@@ -141,6 +148,26 @@ router.post("/createJobs", async (request, env) => {
     rendering: result.jobs.filter((job) => job.status === "rendering").length,
     failed: result.jobs.filter((job) => job.status === "failed").length,
     errors: result.errors,
+  });
+});
+
+router.post("/prepareBackgrounds", async (request, env) => {
+  const body = (await request.json()) as {
+    parsed: ReturnType<typeof parseBrief>;
+  };
+
+  if (!body.parsed?.campaign_id) {
+    return error(400, "Missing parsed brief data");
+  }
+
+  const workerDomain = new URL(request.url).origin;
+  const prepared = await prepareBackgroundVariants(body.parsed, env, workerDomain);
+
+  return json({
+    preparedBackgrounds: Object.fromEntries(
+      prepared.map((entry) => [entry.background, entry.preparedKey])
+    ),
+    prepared,
   });
 });
 
@@ -363,6 +390,7 @@ export default {
       "/render-config",
       "/suggestStyling",
       "/previewModel",
+      "/prepareBackgrounds",
       "/createJobs",
       "/webhook",
       "/assets",

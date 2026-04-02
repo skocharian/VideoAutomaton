@@ -2,8 +2,53 @@ import { getUploadUrl } from "./assets";
 import { normalizeBackgroundSpeed } from "./parser";
 import type { Env, ParsedBrief } from "./types";
 
+export interface SpeedAdjustedBackgroundTarget {
+  background: string;
+  speed: number;
+}
+
+export interface PreparedBackgroundVariant extends SpeedAdjustedBackgroundTarget {
+  preparedKey: string;
+}
+
 export function getBackgroundSpeed(parsed: ParsedBrief, backgroundKey: string): number {
   return normalizeBackgroundSpeed(parsed.backgroundSettings?.[backgroundKey]?.speed);
+}
+
+export function listSpeedAdjustedBackgrounds(
+  parsed: ParsedBrief
+): SpeedAdjustedBackgroundTarget[] {
+  const seen = new Set<string>();
+  return (parsed.backgrounds || [])
+    .map((background) => ({
+      background,
+      speed: getBackgroundSpeed(parsed, background),
+    }))
+    .filter(({ background, speed }) => {
+      if (!background || speed === 1 || !isVideoAsset(background)) {
+        return false;
+      }
+      if (seen.has(background)) {
+        return false;
+      }
+      seen.add(background);
+      return true;
+    });
+}
+
+export async function prepareBackgroundVariants(
+  parsed: ParsedBrief,
+  env: Env,
+  workerOrigin: string
+): Promise<PreparedBackgroundVariant[]> {
+  const targets = listSpeedAdjustedBackgrounds(parsed);
+  return Promise.all(
+    targets.map(async ({ background, speed }) => ({
+      background,
+      speed,
+      preparedKey: await ensureBackgroundSpeedVariant(env, workerOrigin, background, speed),
+    }))
+  );
 }
 
 export async function ensureBackgroundSpeedVariant(

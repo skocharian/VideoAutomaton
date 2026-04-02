@@ -973,4 +973,37 @@ describe("background analysis storage and render submission", () => {
     expect(backgroundElement.source).toContain("/assets/public/derived/bg/");
     expect(requestBody.metadata).toContain('"backgroundSpeed":1.5');
   });
+
+  it("reuses a pre-prepared derived background clip when the UI prepares speed variants first", async () => {
+    const { env } = makeEnv();
+    const derivedKey = getDerivedBackgroundKey("bg/PinkTrees.mp4", 3);
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "render-4" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createRenderJobs(
+      makeParsed({
+        sizes: ["9:16"],
+        backgrounds: ["bg/PinkTrees.mp4"],
+        backgroundSettings: {
+          "bg/PinkTrees.mp4": { speed: 3 },
+        },
+        variants: [makeParsed().variants[0]],
+      }),
+      env,
+      workerDomain,
+      assetBaseUrl,
+      {
+        "bg/PinkTrees.mp4": derivedKey,
+      }
+    );
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const backgroundElement = requestBody.elements.find(
+      (element: { name?: string }) => element.name === "Background"
+    );
+
+    expect(backgroundElement.source).toContain(`/assets/public/${derivedKey}`);
+    expect(requestBody.metadata).toContain('"backgroundSpeed":3');
+  });
 });

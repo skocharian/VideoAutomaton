@@ -316,8 +316,13 @@
 
     .preview-shell {
       margin-top: 1.25rem;
+      margin-bottom: 1.6rem;
       border-top: 1px solid var(--line);
       padding-top: 1.25rem;
+    }
+
+    #btn-generate {
+      margin-top: 0.4rem;
     }
 
     .preview-toolbar {
@@ -572,6 +577,41 @@
       border: 1px solid #9cc2ff;
     }
 
+    .status-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      flex-wrap: wrap;
+    }
+
+    .status-spinner {
+      width: 0.95rem;
+      height: 0.95rem;
+      border-radius: 999px;
+      border: 2px solid rgba(13, 110, 253, 0.22);
+      border-top-color: var(--brand);
+      animation: spin 0.85s linear infinite;
+      flex: 0 0 auto;
+    }
+
+    .status-elapsed {
+      margin-left: auto;
+      font-size: 0.88rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status-detail {
+      margin-top: 0.5rem;
+      color: var(--muted);
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
     @media (max-width: 768px) {
       .container {
         margin-top: 1rem;
@@ -591,6 +631,10 @@
 
       .override-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .status-elapsed {
+        margin-left: 0;
       }
     }
   </style>
@@ -744,6 +788,8 @@
     let backgroundAnalysisCache = {};
     let backgroundAnalysisPromises = {};
     let stylingStatusMessage = "Uses the current preview background and size.";
+    let renderProgressHandle = null;
+    let renderProgressState = null;
 
     async function loadRenderConfig() {
       try {
@@ -2585,17 +2631,57 @@
       syncParsedDataFromForm();
       const button = document.getElementById("btn-generate");
       button.disabled = true;
-      button.textContent = "Submitting...";
+      button.textContent = "Checking...";
 
       try {
+        startRenderProgress(
+          "Checking background analysis...",
+          "Making sure the selected backgrounds are ready for theming and rendering.",
+          "Checking..."
+        );
         await Promise.all(
           (parsedData.backgrounds || []).map((background) => ensureBackgroundAnalysis(background))
         );
 
+        let preparedBackgrounds = {};
+        const speedTargets = getSpeedPreparationTargets();
+        if (speedTargets.length) {
+          startRenderProgress(
+            `Preparing ${speedTargets.length} speed-adjusted background${speedTargets.length === 1 ? "" : "s"}...`,
+            `${describeSpeedPreparationTargets(speedTargets)}. Higher speeds can take a minute or two the first time.`,
+            "Preparing background..."
+          );
+
+          const prepResponse = await fetch(`${API_BASE}/prepareBackgrounds`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parsed: parsedData }),
+          });
+
+          if (!prepResponse.ok) {
+            throw new Error(await prepResponse.text());
+          }
+
+          const prepResult = await prepResponse.json();
+          preparedBackgrounds = prepResult.preparedBackgrounds || {};
+
+          startRenderProgress(
+            "Submitting render jobs...",
+            `Prepared ${Object.keys(preparedBackgrounds).length} speed-adjusted background${Object.keys(preparedBackgrounds).length === 1 ? "" : "s"}. Sending the final jobs to Creatomate now.`,
+            "Submitting..."
+          );
+        } else {
+          startRenderProgress(
+            "Submitting render jobs...",
+            "Sending the final jobs to Creatomate now.",
+            "Submitting..."
+          );
+        }
+
         const response = await fetch(`${API_BASE}/createJobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parsed: parsedData }),
+          body: JSON.stringify({ parsed: parsedData, preparedBackgrounds }),
         });
 
         if (!response.ok) {
@@ -2605,7 +2691,7 @@
         const result = await response.json();
         showStatus(result);
       } catch (error) {
-        alert(`Job creation error: ${error.message}`);
+        showRenderError(error instanceof Error ? error.message : String(error));
       } finally {
         button.disabled = false;
         button.textContent = "Generate Videos";
@@ -2613,6 +2699,7 @@
     }
 
     function showStatus(result) {
+      stopRenderProgress();
       document.getElementById("step-status").classList.remove("hidden");
       const cls = result.failed > 0 ? "error" : "success";
 
@@ -2634,6 +2721,96 @@
       `;
 
       document.getElementById("step-status").scrollIntoView({ behavior: "smooth" });
+    }
+
+    function startRenderProgress(title, detail = "", buttonLabel = "Submitting...") {
+      renderProgressState = {
+        title,
+        detail,
+        startedAt: Date.now(),
+      };
+
+      if (renderProgressHandle) {
+        clearInterval(renderProgressHandle);
+      }
+
+      updateRenderProgress(buttonLabel);
+      renderProgressHandle = setInterval(() => updateRenderProgress(), 1000);
+    }
+
+    function updateRenderProgress(buttonLabel) {
+      if (!renderProgressState) return;
+
+      const stepStatus = document.getElementById("step-status");
+      const renderStatus = document.getElementById("render-status");
+      const button = document.getElementById("btn-generate");
+      const elapsedSeconds = Math.max(
+        0,
+        Math.floor((Date.now() - renderProgressState.startedAt) / 1000)
+      );
+
+      stepStatus.classList.remove("hidden");
+      renderStatus.innerHTML = `
+        <div class="status info">
+          <div class="status-progress-row">
+            <span class="status-spinner" aria-hidden="true"></span>
+            <strong>${escapeHtml(renderProgressState.title)}</strong>
+            <span class="status-elapsed">Elapsed ${escapeHtml(formatTimestampInput(elapsedSeconds))}</span>
+          </div>
+          ${
+            renderProgressState.detail
+              ? `<div class="status-detail">${escapeHtml(renderProgressState.detail)}</div>`
+              : ""
+          }
+        </div>
+      `;
+
+      if (button && button.disabled && buttonLabel) {
+        button.textContent = buttonLabel;
+      }
+    }
+
+    function stopRenderProgress() {
+      if (renderProgressHandle) {
+        clearInterval(renderProgressHandle);
+        renderProgressHandle = null;
+      }
+      renderProgressState = null;
+    }
+
+    function showRenderError(message) {
+      stopRenderProgress();
+      document.getElementById("step-status").classList.remove("hidden");
+      document.getElementById("render-status").innerHTML = `
+        <div class="status error">
+          <strong>Render setup failed</strong><br>
+          ${escapeHtml(message)}
+        </div>
+      `;
+      document.getElementById("step-status").scrollIntoView({ behavior: "smooth" });
+    }
+
+    function getSpeedPreparationTargets() {
+      return (parsedData?.backgrounds || [])
+        .map((background) => ({
+          background,
+          speed: getParsedBackgroundSpeed(background),
+        }))
+        .filter(
+          ({ background, speed }) =>
+            background && speed !== 1 && /\.(mp4|mov|webm)$/i.test(background)
+        );
+    }
+
+    function describeSpeedPreparationTargets(targets) {
+      if (!targets.length) return "No speed-adjusted backgrounds.";
+      const labels = targets.map(
+        ({ background, speed }) => `${background} @ ${speed.toFixed(2)}x`
+      );
+      if (labels.length <= 2) {
+        return labels.join(" | ");
+      }
+      return `${labels.slice(0, 2).join(" | ")} +${labels.length - 2} more`;
     }
 
     async function ensureBackgroundAnalysis(backgroundKey) {

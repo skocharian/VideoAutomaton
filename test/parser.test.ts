@@ -135,6 +135,47 @@ Body: Guided breathwork sessions
     expect(result.screenDurations["2"]).toBe(3);
   });
 
+  it("suppresses earlier duplicate closing-like testimonial screens from content", () => {
+    const brief = `
+Screen 1:
+V1:
+If you want to block overthinking
+
+Screen 2:
+“I cried the first time I used it because I had so much relief from my anxiety.”
+★★★★★ Maggie S.
+
+Screen 3:
+Research shows daily self-care practices may protect the brain.
+
+Screen 4:
+Selected
+“MUST HAVE APP”
+by Apple
+
+Join more than
+18,000,000
+people who have
+downloaded Breethe.
+
+Screen 5:
+“I cried the first time I used it because I had so much relief from my anxiety.”
+★★★★★ Maggie S.
+
+Screen 6:
+<<Breethe logo>>
+Feel better. Sleep better.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.contentScreens.map((screen) => screen.key)).toEqual(["3"]);
+    expect(result.detectedClosingScreenKeys).toEqual({
+      accolade: "4",
+      testimonial: "5",
+      endcard: "6",
+    });
+  });
+
   it("parses explicit screen durations from headings and labels", () => {
     const brief = `
 Screen 1 (2.5s):

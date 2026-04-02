@@ -15,7 +15,8 @@ export async function createRenderJobs(
   parsed: ParsedBrief,
   env: Env,
   workerDomain: string,
-  r2PublicUrl: string
+  r2PublicUrl: string,
+  preparedBackgrounds: Record<string, string> = {}
 ): Promise<{ jobs: RenderJob[]; errors: string[] }> {
   const jobs: RenderJob[] = [];
   const errors: string[] = [];
@@ -53,7 +54,8 @@ export async function createRenderJobs(
             workerDomain,
             preparedBackgroundCache,
             background,
-            backgroundSpeed
+            backgroundSpeed,
+            preparedBackgrounds
           );
           const renderDocument = buildRenderScriptDocument({
             parsed,
@@ -140,8 +142,13 @@ async function getPreparedBackground(
   workerOrigin: string,
   cache: Map<string, Promise<string>>,
   background: string,
-  backgroundSpeed: number
+  backgroundSpeed: number,
+  preparedBackgrounds: Record<string, string>
 ): Promise<string> {
+  if (background && backgroundSpeed !== 1 && preparedBackgrounds[background]) {
+    return preparedBackgrounds[background];
+  }
+
   const cacheKey = `${background}|${backgroundSpeed.toFixed(3)}`;
   if (!cache.has(cacheKey)) {
     cache.set(

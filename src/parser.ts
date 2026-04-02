@@ -42,9 +42,11 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
     screens,
     explicitDurations
   );
-  const detectedClosingScreenKeys = detectClosingScreenKeys(screens);
-  const ignoredScreenKeys = new Set(
-    Object.values(detectedClosingScreenKeys).filter(Boolean)
+  const closingScreenMatches = detectClosingScreenMatches(screens);
+  const detectedClosingScreenKeys = detectClosingScreenKeys(closingScreenMatches);
+  const ignoredScreenKeys = buildIgnoredClosingScreenKeys(
+    detectedClosingScreenKeys,
+    closingScreenMatches
   );
   const contentScreens = buildContentScreens(screens, screenDurations, ignoredScreenKeys);
   const closingScreens = buildClosingScreens(screenDurations, detectedClosingScreenKeys);
@@ -285,11 +287,15 @@ function buildClosingScreens(
   );
 }
 
-function detectClosingScreenKeys(
+function detectClosingScreenMatches(
   screens: Record<string, ScreenText>
-): Partial<Record<ClosingScreenKind, string>> {
-  const detected: Partial<Record<ClosingScreenKind, string>> = {};
-  const orderedKeys = Object.keys(screens).sort((a, b) => Number(b) - Number(a));
+): Record<ClosingScreenKind, string[]> {
+  const detected: Record<ClosingScreenKind, string[]> = {
+    accolade: [],
+    testimonial: [],
+    endcard: [],
+  };
+  const orderedKeys = Object.keys(screens).sort((a, b) => Number(a) - Number(b));
 
   for (const key of orderedKeys) {
     const screen = screens[key];
@@ -297,22 +303,53 @@ function detectClosingScreenKeys(
       .replace(/\s+/g, " ")
       .toLowerCase();
 
-    if (!detected.endcard && isEndcardScreen(haystack)) {
-      detected.endcard = key;
-      continue;
+    if (isEndcardScreen(haystack)) {
+      detected.endcard.push(key);
     }
 
-    if (!detected.testimonial && isTestimonialScreen(haystack)) {
-      detected.testimonial = key;
-      continue;
+    if (isTestimonialScreen(haystack)) {
+      detected.testimonial.push(key);
     }
 
-    if (!detected.accolade && isAccoladeScreen(haystack)) {
-      detected.accolade = key;
+    if (isAccoladeScreen(haystack)) {
+      detected.accolade.push(key);
     }
   }
 
   return detected;
+}
+
+function detectClosingScreenKeys(
+  matches: Record<ClosingScreenKind, string[]>
+): Partial<Record<ClosingScreenKind, string>> {
+  return {
+    accolade: matches.accolade.at(-1),
+    testimonial: matches.testimonial.at(-1),
+    endcard: matches.endcard.at(-1),
+  };
+}
+
+function buildIgnoredClosingScreenKeys(
+  detectedClosingScreenKeys: Partial<Record<ClosingScreenKind, string>>,
+  matches: Record<ClosingScreenKind, string[]>
+): Set<string> {
+  const ignored = new Set<string>(
+    Object.values(detectedClosingScreenKeys).filter(
+      (value): value is string => typeof value === "string" && value.length > 0
+    )
+  );
+
+  for (const kind of ["accolade", "testimonial", "endcard"] as ClosingScreenKind[]) {
+    const detectedKey = detectedClosingScreenKeys[kind];
+    if (!detectedKey) continue;
+    for (const key of matches[kind]) {
+      if (key !== detectedKey) {
+        ignored.add(key);
+      }
+    }
+  }
+
+  return ignored;
 }
 
 function isAccoladeScreen(haystack: string): boolean {
