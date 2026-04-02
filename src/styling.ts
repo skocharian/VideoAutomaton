@@ -187,7 +187,7 @@ function buildRequestBody(
           {
             type: "input_text",
             text:
-              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. Use only these text colors when possible: #ffffff, #87f1f7, #0c2340. Do not invent new layer keys. Prefer minimal changes when the current layout is already strong. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
+              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. You may use any tasteful 6-digit hex text color if it improves contrast with the background. Prefer elegant, high-contrast colors over washed-out or low-contrast ones. Prioritize improving text color before making large positional changes. Do not invent new layer keys. Prefer minimal layout changes when the current composition is already strong, but do change colors when readability or polish would improve. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
           },
         ],
       },
@@ -198,6 +198,9 @@ function buildRequestBody(
             type: "input_text",
             text:
               "Recommend styling overrides for these ad slides.\n" +
+              "Primary goal: choose text colors that read clearly against the actual background and feel premium.\n" +
+              "You are allowed to keep white, but only when it is clearly the best choice. Otherwise choose a better contrasting hex color.\n" +
+              "Avoid muddy grays or colors too close to the background.\n" +
               "Return JSON matching this shape exactly: " +
               JSON.stringify(
                 {

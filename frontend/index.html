@@ -1969,8 +1969,8 @@
         }
 
         const suggestion = await response.json();
-        applyStyleSuggestions(suggestion);
-        stylingStatusMessage = summarizeSuggestionResult(suggestion);
+        const stats = applyStyleSuggestions(suggestion);
+        stylingStatusMessage = summarizeSuggestionResult(suggestion, stats);
         if (statusEl) {
           statusEl.textContent = stylingStatusMessage;
         }
@@ -1990,22 +1990,53 @@
       const profile = parsedData.styleProfiles[profileKey] || {};
       profile.textOverrides = { ...(profile.textOverrides || {}) };
       profile.screenStyleOverrides = { ...(profile.screenStyleOverrides || {}) };
+      let changedLayers = 0;
+      let changedColors = 0;
+      let changedPositions = 0;
+      let changedFontSizes = 0;
+      let changedScrims = 0;
 
       for (const recommendation of suggestion.recommendations || []) {
         for (const layer of recommendation.layers || []) {
-          profile.textOverrides[layer.key] = {
+          const previous = profile.textOverrides[layer.key] || {};
+          const next = {
             ...(profile.textOverrides[layer.key] || {}),
             ...(Number.isFinite(layer.fontSize) ? { fontSize: Number(layer.fontSize) } : {}),
             ...(layer.color ? { color: layer.color } : {}),
             ...(layer.x ? { x: layer.x } : {}),
             ...(layer.y ? { y: layer.y } : {}),
           };
+          const layerChanged =
+            next.fontSize !== previous.fontSize ||
+            next.color !== previous.color ||
+            next.x !== previous.x ||
+            next.y !== previous.y;
+          if (layerChanged) {
+            changedLayers += 1;
+          }
+          if (next.color !== previous.color) {
+            changedColors += 1;
+          }
+          if (next.fontSize !== previous.fontSize) {
+            changedFontSizes += 1;
+          }
+          if (next.x !== previous.x || next.y !== previous.y) {
+            changedPositions += 1;
+          }
+          profile.textOverrides[layer.key] = {
+            ...next,
+          };
         }
 
         if (recommendation.scrim && recommendation.slideId) {
+          const previous = profile.screenStyleOverrides[recommendation.slideId]?.scrimEnabled;
+          const next = recommendation.scrim.enabled !== false;
+          if (previous !== next) {
+            changedScrims += 1;
+          }
           profile.screenStyleOverrides[recommendation.slideId] = {
             ...(profile.screenStyleOverrides[recommendation.slideId] || {}),
-            scrimEnabled: recommendation.scrim.enabled !== false,
+            scrimEnabled: next,
           };
         }
       }
@@ -2016,12 +2047,37 @@
       renderClosingEditor();
       renderSummary();
       schedulePreviewRefresh(0);
+      return {
+        changedLayers,
+        changedColors,
+        changedPositions,
+        changedFontSizes,
+        changedScrims,
+      };
     }
 
-    function summarizeSuggestionResult(suggestion) {
+    function summarizeSuggestionResult(suggestion, stats) {
       const count = (suggestion.recommendations || []).length;
       if (!count) return "No style changes suggested.";
-      return `Applied AI suggestions to ${count} screen${count === 1 ? "" : "s"} for ${previewState.size} / ${previewState.background || "default"}.`;
+      if (!stats || !stats.changedLayers && !stats.changedScrims) {
+        return "AI reviewed the slides but did not find a strong styling change to apply.";
+      }
+
+      const parts = [];
+      if (stats.changedColors) {
+        parts.push(`${stats.changedColors} color`);
+      }
+      if (stats.changedFontSizes) {
+        parts.push(`${stats.changedFontSizes} size`);
+      }
+      if (stats.changedPositions) {
+        parts.push(`${stats.changedPositions} position`);
+      }
+      if (stats.changedScrims) {
+        parts.push(`${stats.changedScrims} scrim`);
+      }
+
+      return `Applied ${parts.join(", ")} change${parts.length === 1 ? "" : "s"} across ${count} screen${count === 1 ? "" : "s"} for ${previewState.size} / ${previewState.background || "default"}.`;
     }
 
     async function handleGenerate() {
