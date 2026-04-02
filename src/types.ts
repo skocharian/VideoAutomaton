@@ -69,12 +69,17 @@ export interface TextLayerOverride {
   strokeWidth?: number;
 }
 
+export interface ImageLayerOverride {
+  tintColor?: string;
+}
+
 export interface ScreenStyleOverride {
   scrimEnabled?: boolean;
 }
 
 export interface StyleProfile {
   textOverrides?: Record<string, TextLayerOverride>;
+  imageOverrides?: Record<string, ImageLayerOverride>;
   screenStyleOverrides?: Record<string, ScreenStyleOverride>;
 }
 
@@ -275,6 +280,7 @@ export interface PreviewLayer {
   strokeWidth?: number;
   fit?: "contain" | "cover" | "fill";
   borderRadius?: string;
+  tintColor?: string;
 }
 
 export interface PreviewSlide {

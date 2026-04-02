@@ -18,6 +18,7 @@ import {
 } from "./render-layout";
 import { normalizeBackgroundSpeed } from "./parser";
 import { stripRichTextMarkup } from "./rich-text";
+import { buildTintedAssetUrl, normalizeTintHexColor } from "./tinted-assets";
 import type {
   BackgroundAnalysisArtifact,
   ClosingScreenKind,
@@ -66,6 +67,8 @@ type ElementKeys = {
   body?: string;
   disclaimer?: string;
   image?: string;
+  stars?: string;
+  attribution?: string;
   logo?: string;
   badge?: string;
 };
@@ -406,6 +409,11 @@ function buildScreenLayers(
         screenLayout.image,
         safeZone
       );
+      const accoladeImageColor = getAccoladeImageColor(
+        theme,
+        styleProfile,
+        elementKeys
+      );
       const headerText =
         options.parsed.accolade
           ? ""
@@ -432,7 +440,11 @@ function buildScreenLayers(
         3,
         resolvedImageLayout,
         options.parsed.accolade
-          ? assetUrl(options.assetBaseUrl, options.parsed.accolade)
+          ? buildTintedAssetUrl(
+              options.assetBaseUrl,
+              options.parsed.accolade,
+              accoladeImageColor
+            )
           : ""
       );
       pushTextLayer(
@@ -477,6 +489,16 @@ function buildScreenLayers(
         screenLayout.body,
         safeZone
       );
+      const resolvedStarsLayout = screenLayout.stars
+        ? applyTextSafeZone(screenLayout.stars, safeZone)
+        : undefined;
+      const resolvedAttributionLayout = screenLayout.attribution
+        ? applyTextSafeZone(screenLayout.attribution, safeZone)
+        : undefined;
+      const testimonialFooter = splitTestimonialFooter(screen.body ?? "");
+      const shouldSplitFooter = Boolean(
+        testimonialFooter.stars || testimonialFooter.attribution
+      );
 
       if (isScrimEnabled(screen.id, styleProfile)) {
         pushScrimLayer(
@@ -487,6 +509,22 @@ function buildScreenLayers(
           screenLayout.scrim,
           theme,
           canvas
+        );
+      }
+      if (shouldSplitFooter && resolvedStarsLayout && testimonialFooter.stars) {
+        pushPreparedTextLayer(
+          layers,
+          preview,
+          elementKeys.stars ?? "Closing_Testimonial_Stars",
+          screen.duration,
+          6,
+          resolvedStarsLayout,
+          testimonialFooter.stars,
+          resolveTextAppearance(
+            resolvedStarsLayout,
+            theme.header,
+            styleProfile.textOverrides?.[elementKeys.stars ?? ""]
+          )
         );
       }
       pushTextLayer(
@@ -500,17 +538,34 @@ function buildScreenLayers(
         screen.header ?? "",
         theme.header
       );
-      pushTextLayer(
-        layers,
-        preview,
-        elementKeys.body,
-        screen.duration,
-        4,
-        resolvedBodyLayout,
-        styleProfile.textOverrides,
-        screen.body ?? "",
-        theme.body
-      );
+      if (shouldSplitFooter && resolvedAttributionLayout && testimonialFooter.attribution) {
+        pushPreparedTextLayer(
+          layers,
+          preview,
+          elementKeys.attribution ?? "Closing_Testimonial_Attribution",
+          screen.duration,
+          4,
+          resolvedAttributionLayout,
+          testimonialFooter.attribution,
+          resolveTextAppearance(
+            resolvedAttributionLayout,
+            theme.body,
+            styleProfile.textOverrides?.[elementKeys.attribution ?? ""]
+          )
+        );
+      } else {
+        pushTextLayer(
+          layers,
+          preview,
+          elementKeys.body,
+          screen.duration,
+          4,
+          resolvedBodyLayout,
+          styleProfile.textOverrides,
+          screen.body ?? "",
+          theme.body
+        );
+      }
 
       return layers;
     }
@@ -630,6 +685,8 @@ function getElementKeys(screen: TimelineScreen): ElementKeys {
     return {
       header: "Closing_Testimonial_Header",
       body: "Closing_Testimonial_Body",
+      stars: "Closing_Testimonial_Stars",
+      attribution: "Closing_Testimonial_Attribution",
     };
   }
 
@@ -1508,6 +1565,68 @@ function buildAssetFadeAnimations(duration: number) {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function splitTestimonialFooter(text: string): {
+  stars: string;
+  attribution: string;
+} {
+  const clean = stripRichTextMarkup(text).trim();
+  if (!clean) {
+    return {
+      stars: "",
+      attribution: "",
+    };
+  }
+
+  const starMatch = clean.match(/^([★☆⭐]{3,})(?:\s+|$)(.*)$/u);
+  if (starMatch) {
+    return {
+      stars: starMatch[1].trim(),
+      attribution: normalizeAttribution(starMatch[2]),
+    };
+  }
+
+  if (clean.length <= 28 && clean.split("\n").length <= 2) {
+    return {
+      stars: "",
+      attribution: normalizeAttribution(clean),
+    };
+  }
+
+  return {
+    stars: "",
+    attribution: "",
+  };
+}
+
+function normalizeAttribution(text: string): string {
+  return text
+    .trim()
+    .replace(/^[\s\-–—]+/, "")
+    .trim();
+}
+
+function getAccoladeImageColor(
+  theme: ScreenThemeSuggestion,
+  styleProfile: StyleProfile,
+  elementKeys: ElementKeys
+): string {
+  const palette = getRenderLayoutConfig().palette;
+  const accentOverride =
+    (elementKeys.body ? styleProfile.textOverrides?.[elementKeys.body]?.color : undefined) ||
+    (elementKeys.header ? styleProfile.textOverrides?.[elementKeys.header]?.color : undefined);
+
+  if (!accentOverride) {
+    const suggested = theme.body ?? theme.header;
+    if (suggested?.styleId === "white-scrim") {
+      return normalizeTintHexColor(palette.navy);
+    }
+  }
+
+  return normalizeTintHexColor(
+    accentOverride || theme.body?.fillColor || theme.header?.fillColor || "#ffffff"
+  );
 }
 
 function assetUrl(assetBaseUrl: string, key: string): string {

@@ -77,8 +77,10 @@ type LayoutSizeConfig = {
     };
     testimonial: {
       scrim: LayoutScrimConfig;
+      stars?: LayoutTextConfig;
       header: LayoutTextConfig;
       body: LayoutTextConfig;
+      attribution?: LayoutTextConfig;
     };
     endcard: {
       scrim: LayoutScrimConfig;

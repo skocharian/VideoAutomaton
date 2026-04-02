@@ -31,6 +31,7 @@ import { buildPreviewModel } from "./render-plan";
 import { getRenderLayoutConfig } from "./render-layout";
 import { suggestStyling, type StylingSuggestionRequest } from "./styling";
 import { getBackgroundSpeed } from "./speed";
+import { buildTintedAssetSvg, normalizeTintHexColor } from "./tinted-assets";
 
 const { preflight, corsify } = cors();
 
@@ -242,6 +243,33 @@ router.get("/assets/public/:key+", async (request, env) => {
   return new Response(object.body, { headers });
 });
 
+router.get("/assets/tinted/:key+", async (request, env) => {
+  const key = decodeURIComponent(request.params.key);
+  const object = await env.R2_ASSETS.get(key);
+
+  if (!object) {
+    return error(404, "Asset not found");
+  }
+
+  const contentType =
+    object.httpMetadata?.contentType ?? inferImageContentType(key) ?? "image/png";
+  if (!contentType.startsWith("image/")) {
+    return error(400, "Tinted asset route only supports images");
+  }
+
+  const color = normalizeTintHexColor(
+    new URL(request.url).searchParams.get("color") ?? "#ffffff"
+  );
+  const svg = buildTintedAssetSvg(contentType, await object.arrayBuffer(), color);
+
+  return new Response(svg, {
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+});
+
 router.get("/analysis/background/:key+", async (request, env) => {
   const key = decodeURIComponent(request.params.key);
   const artifact = await readBackgroundAnalysis(env, key);
@@ -392,4 +420,12 @@ function isBackgroundAsset(key: string, contentType: string): boolean {
       /^image\//.test(contentType) ||
       /\.(mp4|mov|webm|png|jpe?g)$/i.test(key))
   );
+}
+
+function inferImageContentType(key: string): string | null {
+  if (/\.png$/i.test(key)) return "image/png";
+  if (/\.svg$/i.test(key)) return "image/svg+xml";
+  if (/\.jpe?g$/i.test(key)) return "image/jpeg";
+  if (/\.webp$/i.test(key)) return "image/webp";
+  return null;
 }

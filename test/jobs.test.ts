@@ -360,6 +360,9 @@ describe("buildRenderScriptDocument", () => {
 
     const accoladeComposition = getComposition(document, "Screen_5");
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")).toBeDefined();
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
+      "/assets/tinted/accolades/must-have-app.png?color=%23ffffff"
+    );
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Body")?.text).toContain(
       "18,000,000"
     );
@@ -606,6 +609,71 @@ describe("buildRenderScriptDocument", () => {
     const accoladeComposition = getComposition(document, "Screen_5");
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")).toBeDefined();
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Header")).toBeUndefined();
+  });
+
+  it("tints the accolade asset and splits testimonial footer layers on bright backgrounds", () => {
+    const brightArtifact = makeArtifact({
+      "9:16": makeSizeData([
+        {
+          sourceTime: 0,
+          regions: {
+            "closing-accolade-body": makeMetrics({
+              avgLuminance: 0.96,
+              variance: 0.18,
+              brightRatio: 0.9,
+              darkRatio: 0.03,
+              detail: 0.48,
+            }),
+            "closing-testimonial-header": makeMetrics({
+              avgLuminance: 0.9,
+              variance: 0.12,
+              brightRatio: 0.88,
+              darkRatio: 0.05,
+              detail: 0.34,
+            }),
+            "closing-testimonial-body": makeMetrics({
+              avgLuminance: 0.9,
+              variance: 0.12,
+              brightRatio: 0.88,
+              darkRatio: 0.05,
+              detail: 0.34,
+            }),
+            "closing-endcard-header": makeMetrics({
+              avgLuminance: 0.92,
+              brightRatio: 0.86,
+              detail: 0.4,
+            }),
+            "closing-endcard-body": makeMetrics({
+              avgLuminance: 0.92,
+              brightRatio: 0.86,
+              detail: 0.4,
+            }),
+          },
+        },
+      ])
+    });
+
+    const document = buildRenderScriptDocument({
+      parsed: makeParsed(),
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: brightArtifact,
+    });
+
+    const accoladeComposition = getComposition(document, "Screen_5");
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
+      "/assets/tinted/accolades/must-have-app.png?color=%230c2340"
+    );
+
+    const testimonialComposition = getComposition(document, "Screen_6");
+    expect(getNestedElement(testimonialComposition, "Closing_Testimonial_Stars")?.text).toBe(
+      "★★★★★"
+    );
+    expect(
+      getNestedElement(testimonialComposition, "Closing_Testimonial_Attribution")?.text
+    ).toBe("Maggie S.");
   });
 
   it("starts audio from a configured offset while trimming it to the render duration", () => {
