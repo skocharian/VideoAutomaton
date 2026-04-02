@@ -16,6 +16,7 @@ import {
   type LayoutScrimConfig,
   type LayoutTextConfig,
 } from "./render-layout";
+import { normalizeBackgroundSpeed } from "./parser";
 import { stripRichTextMarkup } from "./rich-text";
 import type {
   BackgroundAnalysisArtifact,
@@ -53,6 +54,8 @@ type RenderPlanOptions = {
   parsed: ParsedBrief;
   variantIndex: number;
   backgroundKey: string;
+  backgroundRenderKey?: string;
+  backgroundSpeed?: number;
   size: RenderSize;
   assetBaseUrl: string;
   analysisArtifact: BackgroundAnalysisArtifact | null;
@@ -93,6 +96,9 @@ export function buildPreviewModel(options: RenderPlanOptions): PreviewModel {
 
   return {
     backgroundKey: options.backgroundKey,
+    ...(typeof options.backgroundSpeed === "number"
+      ? { backgroundSpeed: options.backgroundSpeed }
+      : {}),
     backgroundUrl: assetUrl(options.assetBaseUrl, options.backgroundKey),
     size: options.size,
     totalDuration: Number(
@@ -112,7 +118,10 @@ export function buildRenderScriptDocument(
   const totalDuration = Number(
     screens.reduce((total, screen) => total + screen.duration, 0).toFixed(2)
   );
-  const backgroundSource = assetUrl(assetBaseUrl, backgroundKey);
+  const backgroundSource = assetUrl(
+    assetBaseUrl,
+    options.backgroundRenderKey || backgroundKey
+  );
   const backgroundConfig = getRenderLayoutConfig().sizes[size].background;
 
   const elements: RenderElement[] = [];
@@ -291,18 +300,28 @@ function buildScreenLayers(
   preview: boolean
 ): Array<PreviewLayer | RenderElement> {
   const sampleTimes = buildTimelineSampleTimes(screen.time, screen.duration);
+  const backgroundSpeed = normalizeBackgroundSpeed(options.backgroundSpeed);
+  const adjustedSampleTimes = adjustSampleTimesForBackgroundSpeed(
+    sampleTimes,
+    backgroundSpeed
+  );
   const canvas = getCanvasSize(options.size);
   const safeZone = getSafeZone(options.size);
   const styleProfile = getEffectiveStyleProfile(
     options.parsed,
     options.backgroundKey,
-    options.size
+    options.size,
+    backgroundSpeed
   );
   const isContent = screen.kind === "variant" || screen.kind === "content";
   const elementKeys = getElementKeys(screen);
 
   if (isContent) {
-    const theme = suggestContentTheme(options.analysisArtifact, options.size, sampleTimes);
+    const theme = suggestContentTheme(
+      options.analysisArtifact,
+      options.size,
+      adjustedSampleTimes
+    );
     const screenLayout = getContentLayouts(options.size);
     const layers: Array<PreviewLayer | RenderElement> = [];
     const headerOverride = getTextOverride(elementKeys.header, styleProfile.textOverrides);
@@ -371,7 +390,7 @@ function buildScreenLayers(
         options.analysisArtifact,
         options.size,
         "accolade",
-        sampleTimes
+        adjustedSampleTimes
       );
       const screenLayout = getClosingLayouts(options.size, "accolade");
       const layers: Array<PreviewLayer | RenderElement> = [];
@@ -446,7 +465,7 @@ function buildScreenLayers(
         options.analysisArtifact,
         options.size,
         "testimonial",
-        sampleTimes
+        adjustedSampleTimes
       );
       const screenLayout = getClosingLayouts(options.size, "testimonial");
       const layers: Array<PreviewLayer | RenderElement> = [];
@@ -500,7 +519,7 @@ function buildScreenLayers(
         options.analysisArtifact,
         options.size,
         "endcard",
-        sampleTimes
+        adjustedSampleTimes
       );
       const screenLayout = getClosingLayouts(options.size, "endcard");
       const layers: Array<PreviewLayer | RenderElement> = [];
@@ -1362,9 +1381,10 @@ function getTextOverride(
 function getEffectiveStyleProfile(
   parsed: ParsedBrief,
   backgroundKey: string,
-  size: RenderSize
+  size: RenderSize,
+  backgroundSpeed: number
 ): StyleProfile {
-  const scopedKey = getStyleProfileKey(size, backgroundKey);
+  const scopedKey = getStyleProfileKey(size, backgroundKey, backgroundSpeed);
   const scopedProfile = scopedKey ? parsed.styleProfiles?.[scopedKey] : undefined;
 
   return {
@@ -1379,9 +1399,20 @@ function getEffectiveStyleProfile(
   };
 }
 
-function getStyleProfileKey(size: RenderSize, backgroundKey: string): string | null {
+function getStyleProfileKey(
+  size: RenderSize,
+  backgroundKey: string,
+  backgroundSpeed = 1
+): string | null {
   if (!backgroundKey) return null;
-  return `${size}|${backgroundKey}`;
+  return `${size}|${backgroundKey}|${backgroundSpeed.toFixed(3)}`;
+}
+
+function adjustSampleTimesForBackgroundSpeed(
+  sampleTimes: number[],
+  backgroundSpeed: number
+): number[] {
+  return sampleTimes.map((time) => Number((time * backgroundSpeed).toFixed(3)));
 }
 
 function isScrimEnabled(screenId: string, styleProfile: StyleProfile): boolean {

@@ -80,11 +80,11 @@ export async function sendNotification(
     const job: RenderJob = JSON.parse(jData);
     if (job.status === "completed" && job.finalUrl) {
       videoLines.push(
-        `- ${job.variantId} | ${job.size} | ${job.background || "default"}: ${job.finalUrl}`
+        `- ${job.variantId} | ${job.size} | ${job.background || "default"}${formatBackgroundSpeed(job.backgroundSpeed)}: ${job.finalUrl}`
       );
     } else if (job.status === "failed") {
       videoLines.push(
-        `- ${job.variantId} | ${job.size} | ${job.background || "default"}: FAILED — ${job.error}`
+        `- ${job.variantId} | ${job.size} | ${job.background || "default"}${formatBackgroundSpeed(job.backgroundSpeed)}: FAILED — ${job.error}`
       );
     }
   }
@@ -103,4 +103,12 @@ export async function sendNotification(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(message),
   });
+}
+
+function formatBackgroundSpeed(speed: number | undefined): string {
+  if (!Number.isFinite(speed) || Number(speed) === 1) {
+    return "";
+  }
+
+  return ` @ ${Number(speed).toFixed(2)}x`;
 }

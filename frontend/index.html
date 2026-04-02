@@ -213,6 +213,29 @@
       word-break: break-word;
     }
 
+    .tag-label {
+      max-width: 220px;
+      overflow-wrap: anywhere;
+    }
+
+    .tag-speed {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .tag-speed input {
+      width: 4.7rem;
+      padding: 0.2rem 0.35rem;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--brand-dark);
+      font: inherit;
+    }
+
     .tag button {
       box-shadow: none;
       background: none;
@@ -699,6 +722,7 @@
     let previewModelData = null;
     let allAssets = [];
     let selectedBackgrounds = [];
+    let selectedBackgroundSettings = {};
     let pendingSelections = {
       audio: "",
       accolade: "",
@@ -799,12 +823,14 @@
           if (!selectedBackgrounds.includes(key)) {
             selectedBackgrounds.push(key);
           }
+          ensureBackgroundSetting(key);
         }
         pendingSelections.backgrounds = [];
       }
 
       document.querySelectorAll("#bg-list li[data-key]").forEach((item) => {
         if (selectedBackgrounds.includes(item.dataset.key)) {
+          ensureBackgroundSetting(item.dataset.key);
           item.classList.add("selected");
         }
       });
@@ -849,9 +875,11 @@
 
       if (index >= 0) {
         selectedBackgrounds.splice(index, 1);
+        delete selectedBackgroundSettings[key];
         element.classList.remove("selected");
       } else {
         selectedBackgrounds.push(key);
+        ensureBackgroundSetting(key);
         element.classList.add("selected");
       }
 
@@ -868,15 +896,30 @@
       document.getElementById("bg-selected").innerHTML = selectedBackgrounds
         .map(
           (key) =>
-            `<span class="tag">${escapeHtml(key)} <button type="button" onclick="removeBg('${escapeJsString(
-              key
-            )}')">&times;</button></span>`
+            `<span class="tag">
+              <span class="tag-label">${escapeHtml(key)}</span>
+              <label class="tag-speed">
+                Speed
+                <input
+                  type="number"
+                  min="0.5"
+                  max="3"
+                  step="0.05"
+                  value="${escapeHtml(String(getBackgroundSpeedSetting(key)))}"
+                  onchange="updateBackgroundSpeed('${escapeJsString(key)}', this.value)"
+                />
+              </label>
+              <button type="button" onclick="removeBg('${escapeJsString(
+                key
+              )}')">&times;</button>
+            </span>`
         )
         .join("");
     }
 
     function removeBg(key) {
       selectedBackgrounds = selectedBackgrounds.filter((item) => item !== key);
+      delete selectedBackgroundSettings[key];
       document.querySelectorAll("#bg-list li[data-key]").forEach((item) => {
         if (item.dataset.key === key) {
           item.classList.remove("selected");
@@ -885,6 +928,66 @@
 
       if (previewState.background === key) {
         previewState.background = selectedBackgrounds[0] || "";
+      }
+
+      renderBgTags();
+      renderPreviewToolbar();
+      schedulePreviewRefresh();
+    }
+
+    function ensureBackgroundSetting(key) {
+      if (!key) return;
+      if (!selectedBackgroundSettings[key]) {
+        selectedBackgroundSettings[key] = { speed: 1 };
+      }
+    }
+
+    function normalizeBackgroundSpeed(value) {
+      const numeric = Number.parseFloat(value);
+      if (!Number.isFinite(numeric)) {
+        return 1;
+      }
+      return Math.max(0.5, Math.min(3, Number(numeric.toFixed(2))));
+    }
+
+    function getBackgroundSpeedSetting(key) {
+      return normalizeBackgroundSpeed(selectedBackgroundSettings[key]?.speed || 1);
+    }
+
+    function getParsedBackgroundSpeed(key) {
+      return normalizeBackgroundSpeed(
+        parsedData?.backgroundSettings?.[key]?.speed ??
+          selectedBackgroundSettings[key]?.speed ??
+          1
+      );
+    }
+
+    function buildSelectedBackgroundSettings(keys = selectedBackgrounds) {
+      return Object.fromEntries(
+        keys.map((key) => [
+          key,
+          {
+            speed: getBackgroundSpeedSetting(key),
+          },
+        ])
+      );
+    }
+
+    function formatBackgroundPreviewLabel(key) {
+      return `${key} @ ${getParsedBackgroundSpeed(key).toFixed(2)}x`;
+    }
+
+    function updateBackgroundSpeed(key, value) {
+      ensureBackgroundSetting(key);
+      selectedBackgroundSettings[key].speed = normalizeBackgroundSpeed(value);
+
+      if (parsedData) {
+        parsedData.backgroundSettings = {
+          ...(parsedData.backgroundSettings || {}),
+          [key]: {
+            speed: selectedBackgroundSettings[key].speed,
+          },
+        };
       }
 
       renderBgTags();
@@ -1157,6 +1260,7 @@
           body: JSON.stringify({
             brief,
             backgrounds: selectedBackgrounds,
+            backgroundSettings: buildSelectedBackgroundSettings(),
             sizes,
             audio,
             audioStartSeconds: audioStart.seconds,
@@ -1172,6 +1276,10 @@
 
         const data = await response.json();
         parsedData = data.parsed;
+        selectedBackgroundSettings = {
+          ...selectedBackgroundSettings,
+          ...(parsedData.backgroundSettings || {}),
+        };
         previewState.variantIndex = 0;
         previewState.background = parsedData.backgrounds[0] || selectedBackgrounds[0] || "";
         previewState.size = parsedData.sizes[0] || "9:16";
@@ -1187,6 +1295,10 @@
     function showConfirmation() {
       document.getElementById("step-confirm").classList.remove("hidden");
       document.getElementById("campaign-id").value = parsedData.campaign_id;
+      selectedBackgroundSettings = {
+        ...selectedBackgroundSettings,
+        ...(parsedData.backgroundSettings || {}),
+      };
       document.getElementById("audio-start-confirm").value = formatTimestampInput(
         parsedData.audioStartSeconds || 0
       );
@@ -1213,8 +1325,8 @@
       return String(value).replace(/%$/, "");
     }
 
-    function getStyleProfileKey(size, backgroundKey) {
-      return `${size}|${backgroundKey}`;
+    function getStyleProfileKey(size, backgroundKey, backgroundSpeed = 1) {
+      return `${size}|${backgroundKey}|${Number(backgroundSpeed).toFixed(3)}`;
     }
 
     function getCurrentStyleProfile() {
@@ -1222,7 +1334,15 @@
         return null;
       }
 
-      return parsedData.styleProfiles[getStyleProfileKey(previewState.size, previewState.background)] || null;
+      return (
+        parsedData.styleProfiles[
+          getStyleProfileKey(
+            previewState.size,
+            previewState.background,
+            getParsedBackgroundSpeed(previewState.background)
+          )
+        ] || null
+      );
     }
 
     function ensureCurrentStyleProfile() {
@@ -1231,7 +1351,11 @@
       }
 
       parsedData.styleProfiles = parsedData.styleProfiles || {};
-      const key = getStyleProfileKey(previewState.size, previewState.background);
+      const key = getStyleProfileKey(
+        previewState.size,
+        previewState.background,
+        getParsedBackgroundSpeed(previewState.background)
+      );
       parsedData.styleProfiles[key] = parsedData.styleProfiles[key] || {};
       return parsedData.styleProfiles[key];
     }
@@ -1467,6 +1591,11 @@
         <strong>Summary</strong>
         Campaign: ${escapeHtml(parsedData.campaign_id)}<br>
         Variants: ${parsedData.variants.length} | Backgrounds: ${parsedData.backgrounds.length} | Sizes: ${parsedData.sizes.length}<br>
+        Background speeds: ${escapeHtml(
+          (parsedData.backgrounds || [])
+            .map((background) => `${background} @ ${getParsedBackgroundSpeed(background).toFixed(2)}x`)
+            .join(" | ") || "Default 1.00x"
+        )}<br>
         Content screens: ${parsedData.contentScreens.length} + 3 fixed closing screens<br>
         Runtime per video: <strong>${formatSeconds(totalDuration)}</strong><br>
         Audio start: <strong>${escapeHtml(formatTimestampInput(parsedData.audioStartSeconds || 0))}</strong><br>
@@ -1515,7 +1644,7 @@
                     (background) =>
                       `<option value="${background}" ${
                         background === previewState.background ? "selected" : ""
-                      }>${escapeHtml(background)}</option>`
+                      }>${escapeHtml(formatBackgroundPreviewLabel(background))}</option>`
                   )
                   .join("")
               : '<option value="">None</option>'}
@@ -1535,6 +1664,7 @@
         <div class="field">
           <label>Theme Source</label>
           <div class="helper">${escapeHtml(describeAnalysisStatus(previewModelData?.analysisStatus || parsedData.backgroundAnalysis?.[previewState.background]?.status || "missing"))}</div>
+          <div class="helper">Background speed: ${escapeHtml(getParsedBackgroundSpeed(previewState.background).toFixed(2))}x</div>
         </div>
         <div class="field">
           <label>Styling AI</label>
@@ -1790,6 +1920,7 @@
 
       parsedData.campaign_id = document.getElementById("campaign-id").value.trim();
       parsedData.backgrounds = selectedBackgrounds.slice();
+      parsedData.backgroundSettings = buildSelectedBackgroundSettings(parsedData.backgrounds);
       parsedData.audio = document.getElementById("audio-select").value;
       const audioStartInput =
         document.getElementById("audio-start-confirm") || document.getElementById("audio-start-input");
@@ -1946,6 +2077,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             backgroundKey: previewState.background,
+            backgroundSpeed: getParsedBackgroundSpeed(previewState.background),
             backgroundImage: backgroundMedia.src,
             size: previewState.size,
             safeZone: renderConfig?.sizes?.[previewState.size]?.safeZone || null,
@@ -2003,7 +2135,11 @@
     function applyStyleSuggestions(suggestion) {
       if (!parsedData) return;
 
-      const profileKey = getStyleProfileKey(previewState.size, previewState.background);
+      const profileKey = getStyleProfileKey(
+        previewState.size,
+        previewState.background,
+        getParsedBackgroundSpeed(previewState.background)
+      );
       parsedData.styleProfiles = parsedData.styleProfiles || {};
       const profile = parsedData.styleProfiles[profileKey] || {};
       profile.textOverrides = { ...(profile.textOverrides || {}) };
@@ -2140,7 +2276,7 @@
         parts.push(`${stats.changedTypography} typography`);
       }
 
-      return `Applied ${parts.join(", ")} change${parts.length === 1 ? "" : "s"} across ${count} screen${count === 1 ? "" : "s"} for ${previewState.size} / ${previewState.background || "default"}.`;
+      return `Applied ${parts.join(", ")} change${parts.length === 1 ? "" : "s"} across ${count} screen${count === 1 ? "" : "s"} for ${previewState.size} / ${formatBackgroundPreviewLabel(previewState.background || "default")}.`;
     }
 
     async function handleGenerate() {

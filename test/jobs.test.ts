@@ -8,6 +8,7 @@ import {
 } from "../src/background-analysis";
 import { createRenderJobs } from "../src/jobs";
 import { buildPreviewModel, buildRenderScriptDocument } from "../src/render-plan";
+import { getDerivedBackgroundKey } from "../src/speed";
 import type {
   BackgroundAnalysisArtifact,
   BackgroundAnalysisFrame,
@@ -102,6 +103,9 @@ function makeParsed(overrides: Partial<ParsedBrief> = {}): ParsedBrief {
       "11": 4.5,
     },
     backgrounds: ["bg/PinkTrees.mp4"],
+    backgroundSettings: {
+      "bg/PinkTrees.mp4": { speed: 1 },
+    },
     sizes: ["9:16", "4:5"],
     audio: "audio/track.mp3",
     audioStartSeconds: 0,
@@ -120,6 +124,7 @@ function makeParsed(overrides: Partial<ParsedBrief> = {}): ParsedBrief {
     closingScreens: overrides.closingScreens ?? base.closingScreens,
     screenDurations: overrides.screenDurations ?? base.screenDurations,
     backgrounds: overrides.backgrounds ?? base.backgrounds,
+    backgroundSettings: overrides.backgroundSettings ?? base.backgroundSettings,
     sizes: overrides.sizes ?? base.sizes,
     textOverrides: overrides.textOverrides ?? base.textOverrides,
     backgroundAnalysis: overrides.backgroundAnalysis ?? base.backgroundAnalysis,
@@ -629,7 +634,7 @@ describe("buildRenderScriptDocument", () => {
         },
       },
       styleProfiles: {
-        "9:16|bg/PinkTrees.mp4": {
+        "9:16|bg/PinkTrees.mp4|1.000": {
           textOverrides: {
             S3_Header: {
               color: "#ffcc00",
@@ -837,5 +842,39 @@ describe("background analysis storage and render submission", () => {
     );
 
     expect(header.fill_color).toBe("#ffffff");
+  });
+
+  it("uses a cached derived background clip when a non-default speed is configured", async () => {
+    const { env, r2Store } = makeEnv();
+    const derivedKey = getDerivedBackgroundKey("bg/PinkTrees.mp4", 1.5);
+    r2Store[derivedKey] = {
+      body: "derived-video",
+      contentType: "video/mp4",
+    };
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "render-3" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createRenderJobs(
+      makeParsed({
+        sizes: ["9:16"],
+        backgrounds: ["bg/PinkTrees.mp4"],
+        backgroundSettings: {
+          "bg/PinkTrees.mp4": { speed: 1.5 },
+        },
+        variants: [makeParsed().variants[0]],
+      }),
+      env,
+      workerDomain,
+      assetBaseUrl
+    );
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const backgroundElement = requestBody.elements.find(
+      (element: { name?: string }) => element.name === "Background"
+    );
+
+    expect(backgroundElement.source).toContain("/assets/public/derived/bg/");
+    expect(requestBody.metadata).toContain('"backgroundSpeed":1.5');
   });
 });

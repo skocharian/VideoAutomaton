@@ -6,6 +6,7 @@ import type {
 
 export type StylingSuggestionRequest = {
   backgroundKey: string;
+  backgroundSpeed?: number;
   backgroundImage: string;
   size: RenderSize;
   safeZone?: {
@@ -275,6 +276,7 @@ function buildRequestBody(
                 {
                   size: payload.size,
                   backgroundKey: payload.backgroundKey,
+                  backgroundSpeed: payload.backgroundSpeed,
                   safeZone: payload.safeZone,
                   slides: payload.slides,
                 },
@@ -519,8 +521,12 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-export function getStyleProfileKey(size: RenderSize, backgroundKey: string): string {
-  return `${size}|${backgroundKey}`;
+export function getStyleProfileKey(
+  size: RenderSize,
+  backgroundKey: string,
+  backgroundSpeed = 1
+): string {
+  return `${size}|${backgroundKey}|${backgroundSpeed.toFixed(3)}`;
 }
 
 export function mergeTextOverrides(

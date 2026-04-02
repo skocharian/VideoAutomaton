@@ -30,6 +30,7 @@ import { BackgroundAnalyzer, triggerBackgroundAnalysis } from "./container";
 import { buildPreviewModel } from "./render-plan";
 import { getRenderLayoutConfig } from "./render-layout";
 import { suggestStyling, type StylingSuggestionRequest } from "./styling";
+import { getBackgroundSpeed } from "./speed";
 
 const { preflight, corsify } = cors();
 
@@ -82,6 +83,7 @@ router.post("/previewModel", async (request, env) => {
   const r2PublicUrl = body.r2PublicUrl ?? `${workerDomain}/assets/public`;
   const backgroundKey = body.background ?? body.parsed.backgrounds[0] ?? "";
   const size = body.size ?? body.parsed.sizes[0] ?? "9:16";
+  const backgroundSpeed = getBackgroundSpeed(body.parsed, backgroundKey);
   const analysisArtifact = backgroundKey
     ? await readBackgroundAnalysis(env, backgroundKey)
     : null;
@@ -90,6 +92,7 @@ router.post("/previewModel", async (request, env) => {
     parsed: body.parsed,
     variantIndex: body.variantIndex ?? 0,
     backgroundKey,
+    backgroundSpeed,
     size,
     assetBaseUrl: r2PublicUrl,
     analysisArtifact,

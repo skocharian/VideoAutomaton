@@ -1,4 +1,5 @@
 import type {
+  BackgroundSetting,
   ClosingScreenKind,
   ParsedBrief,
   ParseBriefRequest,
@@ -21,6 +22,7 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
   const {
     brief,
     backgrounds,
+    backgroundSettings,
     sizes,
     audio,
     audioStartSeconds,
@@ -56,6 +58,7 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
     detectedClosingScreenKeys,
     screenDurations,
     backgrounds,
+    backgroundSettings: normalizeBackgroundSettings(backgrounds, backgroundSettings),
     sizes: sizes.length > 0 ? sizes : ["9:16", "4:5"],
     audio: audio ?? "",
     audioStartSeconds: normalizeAudioStartSeconds(audioStartSeconds),
@@ -64,6 +67,28 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
     logo: logo ?? "",
     ...(novelty && novelty.length > 0 ? { novelty } : {}),
   };
+}
+
+function normalizeBackgroundSettings(
+  backgrounds: string[],
+  backgroundSettings: Record<string, BackgroundSetting> | undefined
+): Record<string, BackgroundSetting> {
+  return Object.fromEntries(
+    backgrounds.map((background) => [
+      background,
+      {
+        speed: normalizeBackgroundSpeed(backgroundSettings?.[background]?.speed),
+      },
+    ])
+  );
+}
+
+export function normalizeBackgroundSpeed(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.max(0.5, Math.min(3, Number(value)));
 }
 
 function normalizeAudioStartSeconds(value: number | undefined): number {

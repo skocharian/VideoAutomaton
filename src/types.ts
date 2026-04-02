@@ -96,6 +96,10 @@ export interface BackgroundAnalysisRef {
   updatedAt?: string;
 }
 
+export interface BackgroundSetting {
+  speed: number;
+}
+
 export interface ParsedBrief {
   campaign_id: string;
   variants: Variant[];
@@ -108,6 +112,7 @@ export interface ParsedBrief {
   styleProfiles?: Record<string, StyleProfile>;
   screenDurations: Record<string, number>;
   backgrounds: string[];
+  backgroundSettings?: Record<string, BackgroundSetting>;
   backgroundAnalysis?: Record<string, BackgroundAnalysisRef>;
   sizes: RenderSize[];
   audio: string;
@@ -121,6 +126,7 @@ export interface ParsedBrief {
 export interface ParseBriefRequest {
   brief: string;
   backgrounds: string[];
+  backgroundSettings?: Record<string, BackgroundSetting>;
   sizes: RenderSize[];
   audio: string;
   audioStartSeconds?: number;
@@ -135,6 +141,7 @@ export interface RenderJob {
   campaignId: string;
   variantId: string;
   background: string;
+  backgroundSpeed?: number;
   size: RenderSize;
   renderId?: string;
   status: "pending" | "rendering" | "completed" | "failed";
@@ -281,6 +288,7 @@ export interface PreviewSlide {
 
 export interface PreviewModel {
   backgroundKey: string;
+  backgroundSpeed?: number;
   backgroundUrl: string;
   size: RenderSize;
   totalDuration: number;

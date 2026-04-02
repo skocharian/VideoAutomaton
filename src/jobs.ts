@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { buildRenderScriptDocument } from "./render-plan";
 import { readBackgroundAnalysis } from "./background-analysis";
+import { ensureBackgroundSpeedVariant, getBackgroundSpeed } from "./speed";
 
 export async function createRenderJobs(
   parsed: ParsedBrief,
@@ -23,16 +24,19 @@ export async function createRenderJobs(
   const variantIndices =
     parsed.variants.length > 0 ? parsed.variants.map((_, index) => index) : [0];
   const analysisCache = new Map<string, BackgroundAnalysisArtifact | null>();
+  const preparedBackgroundCache = new Map<string, Promise<string>>();
 
   for (const variantIdx of variantIndices) {
     for (const background of backgrounds) {
       for (const size of parsed.sizes) {
+        const backgroundSpeed = getBackgroundSpeed(parsed, background);
         const jobId = generateJobId(parsed.campaign_id, variantIdx, background, size);
         const job: RenderJob = {
           jobId,
           campaignId: parsed.campaign_id,
           variantId: parsed.variants[variantIdx]?.id ?? "V0",
           background,
+          backgroundSpeed,
           size,
           status: "pending",
           createdAt: new Date().toISOString(),
@@ -44,10 +48,19 @@ export async function createRenderJobs(
             analysisCache,
             background
           );
+          const backgroundRenderKey = await getPreparedBackground(
+            env,
+            workerDomain,
+            preparedBackgroundCache,
+            background,
+            backgroundSpeed
+          );
           const renderDocument = buildRenderScriptDocument({
             parsed,
             variantIndex: variantIdx,
             backgroundKey: background,
+            backgroundRenderKey,
+            backgroundSpeed,
             size,
             assetBaseUrl: r2PublicUrl,
             analysisArtifact,
@@ -62,6 +75,7 @@ export async function createRenderJobs(
               variantId: job.variantId,
               size,
               background,
+              backgroundSpeed,
             }),
           };
 
@@ -119,6 +133,24 @@ async function getCachedAnalysis(
   const artifact = await readBackgroundAnalysis(env, background);
   cache.set(background, artifact);
   return artifact;
+}
+
+async function getPreparedBackground(
+  env: Env,
+  workerOrigin: string,
+  cache: Map<string, Promise<string>>,
+  background: string,
+  backgroundSpeed: number
+): Promise<string> {
+  const cacheKey = `${background}|${backgroundSpeed.toFixed(3)}`;
+  if (!cache.has(cacheKey)) {
+    cache.set(
+      cacheKey,
+      ensureBackgroundSpeedVariant(env, workerOrigin, background, backgroundSpeed)
+    );
+  }
+
+  return cache.get(cacheKey)!;
 }
 
 async function submitRender(
