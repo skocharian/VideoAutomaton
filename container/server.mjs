@@ -2,13 +2,13 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { analyzeBackgroundFile } from "../scripts/background-analysis-lib.mjs";
 
 const port = Number(process.env.PORT || 8080);
-const execFileAsync = promisify(execFile);
 const activeSpeedJobs = new Map();
+const FFMPEG_TIMEOUT_MS = Number(process.env.FFMPEG_TIMEOUT_MS || 8 * 60 * 1000);
+const STDERR_LIMIT = 24_000;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -252,7 +252,7 @@ async function runSpeedJob(body) {
 async function transformBackgroundSpeed(input, output, speed) {
   const safeSpeed = Math.max(0.5, Math.min(3, Number(speed)));
   const setpts = (1 / safeSpeed).toFixed(6);
-  await execFileAsync(process.env.FFMPEG_PATH || "ffmpeg", [
+  const ffmpegArgs = [
     "-hide_banner",
     "-loglevel",
     "error",
@@ -271,7 +271,79 @@ async function transformBackgroundSpeed(input, output, speed) {
     "+faststart",
     "-y",
     output,
-  ]);
+  ];
+
+  console.log("speed:job:transform-start", {
+    input,
+    output,
+    speed: safeSpeed,
+    timeoutMs: FFMPEG_TIMEOUT_MS,
+  });
+
+  await runProcessWithTimeout(
+    process.env.FFMPEG_PATH || "ffmpeg",
+    ffmpegArgs,
+    FFMPEG_TIMEOUT_MS
+  );
+}
+
+async function runProcessWithTimeout(command, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+      if (stderr.length > STDERR_LIMIT) {
+        stderr = stderr.slice(-STDERR_LIMIT);
+      }
+    });
+
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(
+          new Error(
+            `ffmpeg timed out after ${timeoutMs}ms${stderr ? `: ${summarizeStderr(stderr)}` : ""}`
+          )
+        );
+        return;
+      }
+
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          `ffmpeg exited with code ${code ?? "null"}${
+            signal ? ` signal ${signal}` : ""
+          }${stderr ? `: ${summarizeStderr(stderr)}` : ""}`
+        )
+      );
+    });
+  });
+}
+
+function summarizeStderr(stderr) {
+  return stderr
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 1200);
 }
 
 async function postSpeedStatus(body, status, error) {
