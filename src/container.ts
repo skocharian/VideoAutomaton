@@ -21,6 +21,11 @@ export async function triggerBackgroundAnalysis(
     getBackgroundAnalysisContainerId(assetKey)
   );
 
+  console.log("container:analysis:start", {
+    assetKey,
+    workerOrigin,
+  });
+
   await container.startAndWaitForPorts({
     cancellationOptions: {
       instanceGetTimeoutMS: 45_000,
@@ -43,8 +48,18 @@ export async function triggerBackgroundAnalysis(
 
   if (!response.ok) {
     const body = await response.text();
+    console.error("container:analysis:error", {
+      assetKey,
+      status: response.status,
+      body,
+    });
     throw new Error(`Background analysis container failed: ${response.status} ${body}`);
   }
+
+  console.log("container:analysis:accepted", {
+    assetKey,
+    status: response.status,
+  });
 
   return true;
 }
@@ -71,6 +86,13 @@ export async function triggerBackgroundSpeedTransform(
     getBackgroundSpeedContainerId(assetKey, speed)
   );
 
+  console.log("container:speed:start", {
+    assetKey,
+    speed,
+    derivedAssetKey,
+    workerOrigin,
+  });
+
   await container.startAndWaitForPorts({
     cancellationOptions: {
       instanceGetTimeoutMS: 45_000,
@@ -96,8 +118,22 @@ export async function triggerBackgroundSpeedTransform(
 
   if (!response.ok) {
     const body = await response.text();
+    console.error("container:speed:error", {
+      assetKey,
+      speed,
+      derivedAssetKey,
+      status: response.status,
+      body,
+    });
     throw new Error(`Background speed container failed: ${response.status} ${body}`);
   }
+
+  console.log("container:speed:accepted", {
+    assetKey,
+    speed,
+    derivedAssetKey,
+    status: response.status,
+  });
 
   return true;
 }

@@ -76,6 +76,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/speed") {
       const body = await readJson(req);
+      console.log("speed:request", {
+        assetKey: body.assetKey,
+        speed: body.speed,
+        derivedAssetKey: body.derivedAssetKey,
+      });
       if (
         !body.assetKey ||
         !body.assetUrl ||
@@ -152,16 +157,37 @@ async function runSpeedJob(body) {
   const outputFile = path.join(tempDir, "derived.mp4");
 
   try {
+    console.log("speed:job:start", {
+      assetKey: body.assetKey,
+      speed: Number(body.speed),
+      derivedAssetKey: body.derivedAssetKey,
+    });
     await postSpeedStatus(body, "processing");
+    console.log("speed:job:status-posted", {
+      assetKey: body.assetKey,
+      status: "processing",
+    });
 
     const assetResponse = await fetch(body.assetUrl);
     if (!assetResponse.ok) {
       throw new Error(`Unable to fetch asset ${body.assetUrl}: ${assetResponse.status}`);
     }
+    console.log("speed:job:source-fetched", {
+      assetKey: body.assetKey,
+      status: assetResponse.status,
+    });
 
     const bytes = new Uint8Array(await assetResponse.arrayBuffer());
     await fs.writeFile(sourceFile, bytes);
+    console.log("speed:job:source-written", {
+      assetKey: body.assetKey,
+      bytes: bytes.byteLength,
+    });
     await transformBackgroundSpeed(sourceFile, outputFile, Number(body.speed));
+    console.log("speed:job:transform-complete", {
+      assetKey: body.assetKey,
+      speed: Number(body.speed),
+    });
 
     const outputBytes = await fs.readFile(outputFile);
     const uploadResponse = await fetch(body.uploadTarget.uploadUrl, {
@@ -175,6 +201,11 @@ async function runSpeedJob(body) {
     if (!uploadResponse.ok) {
       throw new Error(`Failed to upload derived asset: ${uploadResponse.status}`);
     }
+    console.log("speed:job:upload-complete", {
+      derivedAssetKey: body.derivedAssetKey,
+      status: uploadResponse.status,
+      bytes: outputBytes.byteLength,
+    });
 
     if (body.uploadTarget.completeUrl) {
       const completeResponse = await fetch(body.uploadTarget.completeUrl, {
@@ -190,10 +221,24 @@ async function runSpeedJob(body) {
       if (!completeResponse.ok) {
         throw new Error(`Failed to finalize derived upload: ${completeResponse.status}`);
       }
+      console.log("speed:job:upload-finalized", {
+        derivedAssetKey: body.derivedAssetKey,
+        status: completeResponse.status,
+      });
     }
 
     await postSpeedStatus(body, "ready");
+    console.log("speed:job:status-posted", {
+      assetKey: body.assetKey,
+      status: "ready",
+    });
   } catch (error) {
+    console.error("speed:job:error", {
+      assetKey: body.assetKey,
+      speed: Number(body.speed),
+      derivedAssetKey: body.derivedAssetKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
     await postSpeedStatus(
       body,
       "failed",
@@ -230,21 +275,54 @@ async function transformBackgroundSpeed(input, output, speed) {
 }
 
 async function postSpeedStatus(body, status, error) {
-  const response = await fetch(body.callbackUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      background: body.assetKey,
+  try {
+    console.log("speed:status:posting", {
+      callbackUrl: body.callbackUrl,
+      assetKey: body.assetKey,
       speed: Number(body.speed),
       preparedKey: body.derivedAssetKey,
       status,
-      ...(error ? { error } : {}),
-    }),
-  });
+    });
+    const response = await fetch(body.callbackUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        background: body.assetKey,
+        speed: Number(body.speed),
+        preparedKey: body.derivedAssetKey,
+        status,
+        ...(error ? { error } : {}),
+      }),
+    });
 
-  if (!response.ok) {
-    console.error("Failed to post speed status", status, await response.text());
+    if (!response.ok) {
+      console.error("speed:status:post-failed", {
+        assetKey: body.assetKey,
+        speed: Number(body.speed),
+        preparedKey: body.derivedAssetKey,
+        status,
+        responseStatus: response.status,
+        responseBody: await response.text(),
+      });
+      return;
+    }
+
+    console.log("speed:status:posted", {
+      assetKey: body.assetKey,
+      speed: Number(body.speed),
+      preparedKey: body.derivedAssetKey,
+      status,
+      responseStatus: response.status,
+    });
+  } catch (fetchError) {
+    console.error("speed:status:exception", {
+      assetKey: body.assetKey,
+      speed: Number(body.speed),
+      preparedKey: body.derivedAssetKey,
+      status,
+      error: fetchError instanceof Error ? fetchError.message : String(fetchError),
+    });
   }
 }
