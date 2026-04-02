@@ -2648,22 +2648,10 @@
         if (speedTargets.length) {
           startRenderProgress(
             `Preparing ${speedTargets.length} speed-adjusted background${speedTargets.length === 1 ? "" : "s"}...`,
-            `${describeSpeedPreparationTargets(speedTargets)}. Higher speeds can take a minute or two the first time.`,
+            `${describeSpeedPreparationTargets(speedTargets)}. This step now runs asynchronously, so you'll see when each background is queued, processing, ready, or failed.`,
             "Preparing background..."
           );
-
-          const prepResponse = await fetch(`${API_BASE}/prepareBackgrounds`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ parsed: parsedData }),
-          });
-
-          if (!prepResponse.ok) {
-            throw new Error(await prepResponse.text());
-          }
-
-          const prepResult = await prepResponse.json();
-          preparedBackgrounds = prepResult.preparedBackgrounds || {};
+          preparedBackgrounds = await waitForPreparedBackgrounds(speedTargets);
 
           startRenderProgress(
             "Submitting render jobs...",
@@ -2811,6 +2799,69 @@
         return labels.join(" | ");
       }
       return `${labels.slice(0, 2).join(" | ")} +${labels.length - 2} more`;
+    }
+
+    function summarizePreparationStates(states) {
+      const summary = {
+        ready: 0,
+        pending: 0,
+        processing: 0,
+        failed: 0,
+      };
+
+      for (const state of states || []) {
+        if (state?.status && Object.hasOwn(summary, state.status)) {
+          summary[state.status] += 1;
+        }
+      }
+
+      return summary;
+    }
+
+    async function waitForPreparedBackgrounds(targets) {
+      const deadline = Date.now() + 10 * 60 * 1000;
+
+      while (true) {
+        const response = await fetch(`${API_BASE}/prepareBackgrounds`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parsed: parsedData }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const prepResult = await response.json();
+        const states = prepResult.prepared || [];
+        const summary = summarizePreparationStates(states);
+
+        if (summary.failed > 0) {
+          const failed = states.find((state) => state.status === "failed");
+          throw new Error(
+            failed?.error ||
+              "A speed-adjusted background failed while preparing."
+          );
+        }
+
+        if (states.length && summary.ready === states.length) {
+          return prepResult.preparedBackgrounds || {};
+        }
+
+        startRenderProgress(
+          `Preparing ${targets.length} speed-adjusted background${targets.length === 1 ? "" : "s"}...`,
+          `Ready ${summary.ready}/${states.length || targets.length} · Processing ${summary.processing} · Queued ${summary.pending}. ${describeSpeedPreparationTargets(targets)}`,
+          "Preparing background..."
+        );
+
+        if (Date.now() > deadline) {
+          throw new Error(
+            "Background speed preparation is taking too long. Please retry in a moment."
+          );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
     }
 
     async function ensureBackgroundAnalysis(backgroundKey) {

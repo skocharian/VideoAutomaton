@@ -8,7 +8,7 @@ import {
 } from "../src/background-analysis";
 import { createRenderJobs } from "../src/jobs";
 import { buildPreviewModel, buildRenderScriptDocument } from "../src/render-plan";
-import { getDerivedBackgroundKey } from "../src/speed";
+import { getDerivedBackgroundKey, prepareBackgroundVariants } from "../src/speed";
 import type {
   BackgroundAnalysisArtifact,
   BackgroundAnalysisFrame,
@@ -972,6 +972,58 @@ describe("background analysis storage and render submission", () => {
 
     expect(backgroundElement.source).toContain("/assets/public/derived/bg/");
     expect(requestBody.metadata).toContain('"backgroundSpeed":1.5');
+  });
+
+  it("reports cached speed variants as ready during the preparation phase", async () => {
+    const { env, r2Store } = makeEnv();
+    const derivedKey = getDerivedBackgroundKey("bg/PinkTrees.mp4", 1.5);
+    r2Store[derivedKey] = {
+      body: "derived-video",
+      contentType: "video/mp4",
+    };
+
+    const prepared = await prepareBackgroundVariants(
+      makeParsed({
+        backgrounds: ["bg/PinkTrees.mp4"],
+        backgroundSettings: {
+          "bg/PinkTrees.mp4": { speed: 1.5 },
+        },
+      }),
+      env,
+      workerDomain
+    );
+
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        background: "bg/PinkTrees.mp4",
+        speed: 1.5,
+        preparedKey: derivedKey,
+        status: "ready",
+      }),
+    ]);
+  });
+
+  it("reports missing speed variants as failed when no container is configured", async () => {
+    const { env } = makeEnv();
+
+    const prepared = await prepareBackgroundVariants(
+      makeParsed({
+        backgrounds: ["bg/PinkTrees.mp4"],
+        backgroundSettings: {
+          "bg/PinkTrees.mp4": { speed: 1.5 },
+        },
+      }),
+      env,
+      workerDomain
+    );
+
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        background: "bg/PinkTrees.mp4",
+        speed: 1.5,
+        status: "failed",
+      }),
+    ]);
   });
 
   it("reuses a pre-prepared derived background clip when the UI prepares speed variants first", async () => {

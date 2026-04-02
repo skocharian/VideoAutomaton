@@ -151,7 +151,7 @@ router.post("/createJobs", async (request, env) => {
   });
 });
 
-router.post("/prepareBackgrounds", async (request, env) => {
+router.post("/prepareBackgrounds", async (request, env, ctx) => {
   const body = (await request.json()) as {
     parsed: ReturnType<typeof parseBrief>;
   };
@@ -161,11 +161,15 @@ router.post("/prepareBackgrounds", async (request, env) => {
   }
 
   const workerDomain = new URL(request.url).origin;
-  const prepared = await prepareBackgroundVariants(body.parsed, env, workerDomain);
+  const prepared = await prepareBackgroundVariants(body.parsed, env, workerDomain, (task) => {
+    ctx.waitUntil(task.catch(console.error));
+  });
 
   return json({
     preparedBackgrounds: Object.fromEntries(
-      prepared.map((entry) => [entry.background, entry.preparedKey])
+      prepared
+        .filter((entry) => entry.status === "ready")
+        .map((entry) => [entry.background, entry.preparedKey])
     ),
     prepared,
   });

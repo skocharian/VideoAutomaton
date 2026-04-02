@@ -199,6 +199,8 @@ async function transformBackgroundSpeed(input, output, speed) {
     `setpts=${setpts}*PTS`,
     "-c:v",
     "libx264",
+    "-preset",
+    "veryfast",
     "-pix_fmt",
     "yuv420p",
     "-movflags",

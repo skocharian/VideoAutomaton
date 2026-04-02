@@ -2,6 +2,9 @@ import { getUploadUrl } from "./assets";
 import { normalizeBackgroundSpeed } from "./parser";
 import type { Env, ParsedBrief } from "./types";
 
+export type BackgroundPreparationStatus = "pending" | "processing" | "ready" | "failed";
+const STALE_PREPARATION_MS = 5 * 60 * 1000;
+
 export interface SpeedAdjustedBackgroundTarget {
   background: string;
   speed: number;
@@ -9,6 +12,9 @@ export interface SpeedAdjustedBackgroundTarget {
 
 export interface PreparedBackgroundVariant extends SpeedAdjustedBackgroundTarget {
   preparedKey: string;
+  status: BackgroundPreparationStatus;
+  updatedAt: string;
+  error?: string;
 }
 
 export function getBackgroundSpeed(parsed: ParsedBrief, backgroundKey: string): number {
@@ -39,15 +45,16 @@ export function listSpeedAdjustedBackgrounds(
 export async function prepareBackgroundVariants(
   parsed: ParsedBrief,
   env: Env,
-  workerOrigin: string
+  workerOrigin: string,
+  enqueue: (task: Promise<unknown>) => void = (task) => {
+    void task;
+  }
 ): Promise<PreparedBackgroundVariant[]> {
   const targets = listSpeedAdjustedBackgrounds(parsed);
   return Promise.all(
-    targets.map(async ({ background, speed }) => ({
-      background,
-      speed,
-      preparedKey: await ensureBackgroundSpeedVariant(env, workerOrigin, background, speed),
-    }))
+    targets.map(({ background, speed }) =>
+      queueBackgroundSpeedPreparation(env, workerOrigin, background, speed, enqueue)
+    )
   );
 }
 
@@ -62,6 +69,154 @@ export async function ensureBackgroundSpeedVariant(
     return backgroundKey;
   }
 
+  return prepareBackgroundSpeedVariantNow(env, workerOrigin, backgroundKey, speed);
+}
+
+export function getDerivedBackgroundKey(backgroundKey: string, requestedSpeed: number): string {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
+  const extension = isVideoAsset(backgroundKey)
+    ? ".mp4"
+    : backgroundKey.match(/\.[a-z0-9]+$/i)?.[0] || "";
+  const baseName = backgroundKey
+    .replace(/^bg\//, "")
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/[^a-z0-9/_-]+/gi, "-")
+    .replace(/\/+/g, "/");
+  const speedTag = String(speed.toFixed(2)).replace(".", "_");
+  return `derived/bg/${baseName}--speed-${speedTag}${extension}`;
+}
+
+function isVideoAsset(key: string): boolean {
+  return /\.(mp4|mov|webm)$/i.test(key || "");
+}
+
+export async function queueBackgroundSpeedPreparation(
+  env: Env,
+  workerOrigin: string,
+  backgroundKey: string,
+  requestedSpeed: number,
+  enqueue: (task: Promise<unknown>) => void
+): Promise<PreparedBackgroundVariant> {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
+  const derivedKey = getDerivedBackgroundKey(backgroundKey, speed);
+  const now = new Date().toISOString();
+
+  if (!backgroundKey || speed === 1 || !isVideoAsset(backgroundKey)) {
+    return {
+      background: backgroundKey,
+      speed,
+      preparedKey: backgroundKey,
+      status: "ready",
+      updatedAt: now,
+    };
+  }
+
+  const existing = await env.R2_ASSETS.get(derivedKey);
+  if (existing) {
+    const readyState: PreparedBackgroundVariant = {
+      background: backgroundKey,
+      speed,
+      preparedKey: derivedKey,
+      status: "ready",
+      updatedAt: now,
+    };
+    await writeBackgroundSpeedPreparation(env, readyState);
+    return readyState;
+  }
+
+  const current = await readBackgroundSpeedPreparation(env, backgroundKey, speed);
+  if (
+    current &&
+    (current.status === "pending" || current.status === "processing") &&
+    !isStalePreparationState(current)
+  ) {
+    return current;
+  }
+
+  if (!env.BACKGROUND_ANALYZER) {
+    const failedState: PreparedBackgroundVariant = {
+      background: backgroundKey,
+      speed,
+      preparedKey: derivedKey,
+      status: "failed",
+      updatedAt: now,
+      error: "Background speed transforms require the background analyzer container",
+    };
+    await writeBackgroundSpeedPreparation(env, failedState);
+    return failedState;
+  }
+
+  const pendingState: PreparedBackgroundVariant = {
+    background: backgroundKey,
+    speed,
+    preparedKey: derivedKey,
+    status: "pending",
+    updatedAt: now,
+  };
+  await writeBackgroundSpeedPreparation(env, pendingState);
+  enqueue(runBackgroundSpeedPreparation(env, workerOrigin, backgroundKey, speed));
+  return pendingState;
+}
+
+export async function readBackgroundSpeedPreparation(
+  env: Env,
+  backgroundKey: string,
+  requestedSpeed: number
+): Promise<PreparedBackgroundVariant | null> {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
+  const raw = await env.KV_JOBS.get(getBackgroundSpeedPreparationKvKey(backgroundKey, speed));
+  if (!raw) {
+    return null;
+  }
+
+  return JSON.parse(raw) as PreparedBackgroundVariant;
+}
+
+async function runBackgroundSpeedPreparation(
+  env: Env,
+  workerOrigin: string,
+  backgroundKey: string,
+  requestedSpeed: number
+): Promise<void> {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
+  const derivedKey = getDerivedBackgroundKey(backgroundKey, speed);
+
+  await writeBackgroundSpeedPreparation(env, {
+    background: backgroundKey,
+    speed,
+    preparedKey: derivedKey,
+    status: "processing",
+    updatedAt: new Date().toISOString(),
+  });
+
+  try {
+    await prepareBackgroundSpeedVariantNow(env, workerOrigin, backgroundKey, speed);
+    await writeBackgroundSpeedPreparation(env, {
+      background: backgroundKey,
+      speed,
+      preparedKey: derivedKey,
+      status: "ready",
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    await writeBackgroundSpeedPreparation(env, {
+      background: backgroundKey,
+      speed,
+      preparedKey: derivedKey,
+      status: "failed",
+      updatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function prepareBackgroundSpeedVariantNow(
+  env: Env,
+  workerOrigin: string,
+  backgroundKey: string,
+  requestedSpeed: number
+): Promise<string> {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
   const derivedKey = getDerivedBackgroundKey(backgroundKey, speed);
   const existing = await env.R2_ASSETS.get(derivedKey);
   if (existing) {
@@ -86,20 +241,29 @@ export async function ensureBackgroundSpeedVariant(
   return derivedKey;
 }
 
-export function getDerivedBackgroundKey(backgroundKey: string, requestedSpeed: number): string {
-  const speed = normalizeBackgroundSpeed(requestedSpeed);
-  const extension = isVideoAsset(backgroundKey)
-    ? ".mp4"
-    : backgroundKey.match(/\.[a-z0-9]+$/i)?.[0] || "";
-  const baseName = backgroundKey
-    .replace(/^bg\//, "")
-    .replace(/\.[a-z0-9]+$/i, "")
-    .replace(/[^a-z0-9/_-]+/gi, "-")
-    .replace(/\/+/g, "/");
-  const speedTag = String(speed.toFixed(2)).replace(".", "_");
-  return `derived/bg/${baseName}--speed-${speedTag}${extension}`;
+async function writeBackgroundSpeedPreparation(
+  env: Env,
+  state: PreparedBackgroundVariant
+): Promise<void> {
+  await env.KV_JOBS.put(
+    getBackgroundSpeedPreparationKvKey(state.background, state.speed),
+    JSON.stringify(state)
+  );
 }
 
-function isVideoAsset(key: string): boolean {
-  return /\.(mp4|mov|webm)$/i.test(key || "");
+function getBackgroundSpeedPreparationKvKey(
+  backgroundKey: string,
+  requestedSpeed: number
+): string {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
+  return `speedprep:${getDerivedBackgroundKey(backgroundKey, speed)}`;
+}
+
+function isStalePreparationState(state: PreparedBackgroundVariant): boolean {
+  const updatedAt = Date.parse(state.updatedAt || "");
+  if (!Number.isFinite(updatedAt)) {
+    return true;
+  }
+
+  return Date.now() - updatedAt > STALE_PREPARATION_MS;
 }
