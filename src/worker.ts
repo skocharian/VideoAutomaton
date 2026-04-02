@@ -29,6 +29,7 @@ import {
 import { BackgroundAnalyzer, triggerBackgroundAnalysis } from "./container";
 import { buildPreviewModel } from "./render-plan";
 import { getRenderLayoutConfig } from "./render-layout";
+import { suggestStyling, type StylingSuggestionRequest } from "./styling";
 
 const { preflight, corsify } = cors();
 
@@ -99,6 +100,21 @@ router.post("/previewModel", async (request, env) => {
 
 router.get("/render-config", () => {
   return json(getRenderLayoutConfig());
+});
+
+router.post("/suggestStyling", async (request, env) => {
+  const body = (await request.json()) as StylingSuggestionRequest;
+
+  if (!body.backgroundImage || !body.size || !body.slides?.length) {
+    return error(400, "Missing styling suggestion inputs");
+  }
+
+  try {
+    const suggestion = await suggestStyling(env, body);
+    return json(suggestion);
+  } catch (err) {
+    return error(500, err instanceof Error ? err.message : "Styling suggestion failed");
+  }
 });
 
 router.post("/createJobs", async (request, env) => {
@@ -314,6 +330,7 @@ export default {
     const apiPrefixes = [
       "/parseBrief",
       "/render-config",
+      "/suggestStyling",
       "/previewModel",
       "/createJobs",
       "/webhook",

@@ -716,6 +716,7 @@
     let previewDebounceHandle = null;
     let backgroundAnalysisCache = {};
     let backgroundAnalysisPromises = {};
+    let stylingStatusMessage = "Uses the current preview background and size.";
 
     async function loadRenderConfig() {
       try {
@@ -1199,12 +1200,39 @@
 
     function getTextOverride(elementName) {
       parsedData.textOverrides = parsedData.textOverrides || {};
-      return parsedData.textOverrides[elementName] || {};
+      const scopedOverrides = getCurrentStyleProfile()?.textOverrides || {};
+      return {
+        ...(parsedData.textOverrides[elementName] || {}),
+        ...(scopedOverrides[elementName] || {}),
+      };
     }
 
     function getOverridePositionValue(value) {
       if (!value) return "";
       return String(value).replace(/%$/, "");
+    }
+
+    function getStyleProfileKey(size, backgroundKey) {
+      return `${size}|${backgroundKey}`;
+    }
+
+    function getCurrentStyleProfile() {
+      if (!parsedData?.styleProfiles || !previewState.background || !previewState.size) {
+        return null;
+      }
+
+      return parsedData.styleProfiles[getStyleProfileKey(previewState.size, previewState.background)] || null;
+    }
+
+    function ensureCurrentStyleProfile() {
+      if (!parsedData || !previewState.background || !previewState.size) {
+        return null;
+      }
+
+      parsedData.styleProfiles = parsedData.styleProfiles || {};
+      const key = getStyleProfileKey(previewState.size, previewState.background);
+      parsedData.styleProfiles[key] = parsedData.styleProfiles[key] || {};
+      return parsedData.styleProfiles[key];
     }
 
     function renderVariantsEditor() {
@@ -1507,6 +1535,11 @@
           <label>Theme Source</label>
           <div class="helper">${escapeHtml(describeAnalysisStatus(previewModelData?.analysisStatus || parsedData.backgroundAnalysis?.[previewState.background]?.status || "missing"))}</div>
         </div>
+        <div class="field">
+          <label>Styling AI</label>
+          <button type="button" onclick="handleSuggestStyling()">Suggest Styling</button>
+          <div class="helper" id="styling-status">${escapeHtml(stylingStatusMessage)}</div>
+        </div>
       `;
     }
 
@@ -1800,41 +1833,49 @@
         screen[field] = input.value;
       });
 
-      parsedData.textOverrides = {};
+      const activeStyleProfile = ensureCurrentStyleProfile();
+      if (activeStyleProfile) {
+        activeStyleProfile.textOverrides = {};
+      } else {
+        parsedData.textOverrides = {};
+      }
+      const targetTextOverrides = activeStyleProfile
+        ? activeStyleProfile.textOverrides
+        : parsedData.textOverrides;
       document.querySelectorAll("[data-style-element]").forEach((input) => {
         const elementName = input.dataset.styleElement;
         const prop = input.dataset.styleProp;
         const rawValue = input.value.trim();
         if (!elementName || !prop || !rawValue) return;
 
-        if (!parsedData.textOverrides[elementName]) {
-          parsedData.textOverrides[elementName] = {};
+        if (!targetTextOverrides[elementName]) {
+          targetTextOverrides[elementName] = {};
         }
 
         if (prop === "fontSize") {
           const value = Number.parseFloat(rawValue);
           if (Number.isFinite(value) && value > 0) {
-            parsedData.textOverrides[elementName].fontSize = value;
+            targetTextOverrides[elementName].fontSize = value;
           }
           return;
         }
 
         if (prop === "color") {
-          parsedData.textOverrides[elementName].color = rawValue;
+          targetTextOverrides[elementName].color = rawValue;
           return;
         }
 
         if (prop === "x" || prop === "y") {
           const value = Number.parseFloat(rawValue);
           if (Number.isFinite(value)) {
-            parsedData.textOverrides[elementName][prop] = `${value}%`;
+            targetTextOverrides[elementName][prop] = `${value}%`;
           }
         }
       });
 
-      Object.keys(parsedData.textOverrides).forEach((elementName) => {
-        if (!Object.keys(parsedData.textOverrides[elementName]).length) {
-          delete parsedData.textOverrides[elementName];
+      Object.keys(targetTextOverrides).forEach((elementName) => {
+        if (!Object.keys(targetTextOverrides[elementName]).length) {
+          delete targetTextOverrides[elementName];
         }
       });
 
@@ -1864,6 +1905,123 @@
           closingScreen.duration = duration;
         }
       });
+    }
+
+    async function handleSuggestStyling() {
+      if (!parsedData) return;
+
+      syncParsedDataFromForm();
+      const statusEl = document.getElementById("styling-status");
+      if (statusEl) {
+        stylingStatusMessage = "Requesting styling suggestion…";
+        statusEl.textContent = stylingStatusMessage;
+      }
+
+      try {
+        if (!previewModelData) {
+          await renderPreview();
+        }
+
+        if (!previewModelData?.slides?.length) {
+          throw new Error("Preview is not ready yet");
+        }
+
+        const backgroundMedia = await getPreviewBackgroundMedia(previewState.background);
+        if (!backgroundMedia?.src) {
+          throw new Error("No preview background image available");
+        }
+
+        const response = await fetch(`${API_BASE}/suggestStyling`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            backgroundKey: previewState.background,
+            backgroundImage: backgroundMedia.src,
+            size: previewState.size,
+            safeZone: renderConfig?.sizes?.[previewState.size]?.safeZone || null,
+            slides: previewModelData.slides.map((slide) => ({
+              id: slide.id,
+              kind: slide.kind,
+              displayIndex: slide.displayIndex,
+              layers: (slide.layers || [])
+                .filter((layer) => layer.type === "text")
+                .map((layer) => ({
+                  key: layer.key,
+                  type: layer.type,
+                  text: layer.text,
+                  x: layer.x,
+                  y: layer.y,
+                  width: layer.width,
+                  height: layer.height,
+                  fontFamily: layer.fontFamily,
+                  fontSize: layer.fontSize,
+                  fontWeight: layer.fontWeight,
+                  lineHeight: layer.lineHeight,
+                  textAlign: layer.textAlign,
+                  color: layer.color,
+                })),
+            })),
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const suggestion = await response.json();
+        applyStyleSuggestions(suggestion);
+        stylingStatusMessage = summarizeSuggestionResult(suggestion);
+        if (statusEl) {
+          statusEl.textContent = stylingStatusMessage;
+        }
+      } catch (error) {
+        stylingStatusMessage = `Suggestion failed: ${error.message}`;
+        if (statusEl) {
+          statusEl.textContent = stylingStatusMessage;
+        }
+      }
+    }
+
+    function applyStyleSuggestions(suggestion) {
+      if (!parsedData) return;
+
+      const profileKey = getStyleProfileKey(previewState.size, previewState.background);
+      parsedData.styleProfiles = parsedData.styleProfiles || {};
+      const profile = parsedData.styleProfiles[profileKey] || {};
+      profile.textOverrides = { ...(profile.textOverrides || {}) };
+      profile.screenStyleOverrides = { ...(profile.screenStyleOverrides || {}) };
+
+      for (const recommendation of suggestion.recommendations || []) {
+        for (const layer of recommendation.layers || []) {
+          profile.textOverrides[layer.key] = {
+            ...(profile.textOverrides[layer.key] || {}),
+            ...(Number.isFinite(layer.fontSize) ? { fontSize: Number(layer.fontSize) } : {}),
+            ...(layer.color ? { color: layer.color } : {}),
+            ...(layer.x ? { x: layer.x } : {}),
+            ...(layer.y ? { y: layer.y } : {}),
+          };
+        }
+
+        if (recommendation.scrim && recommendation.slideId) {
+          profile.screenStyleOverrides[recommendation.slideId] = {
+            ...(profile.screenStyleOverrides[recommendation.slideId] || {}),
+            scrimEnabled: recommendation.scrim.enabled !== false,
+          };
+        }
+      }
+
+      parsedData.styleProfiles[profileKey] = profile;
+      renderVariantsEditor();
+      renderScreensEditor();
+      renderClosingEditor();
+      renderSummary();
+      schedulePreviewRefresh(0);
+    }
+
+    function summarizeSuggestionResult(suggestion) {
+      const count = (suggestion.recommendations || []).length;
+      if (!count) return "No style changes suggested.";
+      return `Applied AI suggestions to ${count} screen${count === 1 ? "" : "s"} for ${previewState.size} / ${previewState.background || "default"}.`;
     }
 
     async function handleGenerate() {

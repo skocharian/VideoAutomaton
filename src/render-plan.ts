@@ -31,6 +31,7 @@ import type {
   RenderSize,
   RenderValue,
   ScreenThemeSuggestion,
+  StyleProfile,
   TextLayerOverride,
   ThemeSuggestion,
 } from "./types";
@@ -275,6 +276,11 @@ function buildScreenLayers(
   const sampleTimes = buildTimelineSampleTimes(screen.time, screen.duration);
   const canvas = getCanvasSize(options.size);
   const safeZone = getSafeZone(options.size);
+  const styleProfile = getEffectiveStyleProfile(
+    options.parsed,
+    options.backgroundKey,
+    options.size
+  );
   const isContent = screen.kind === "variant" || screen.kind === "content";
   const elementKeys = getElementKeys(screen);
 
@@ -282,30 +288,32 @@ function buildScreenLayers(
     const theme = suggestContentTheme(options.analysisArtifact, options.size, sampleTimes);
     const screenLayout = getContentLayouts(options.size);
     const layers: Array<PreviewLayer | RenderElement> = [];
-    const headerOverride = getTextOverride(elementKeys.header, options.parsed.textOverrides);
-    const bodyOverride = getTextOverride(elementKeys.body, options.parsed.textOverrides);
+    const headerOverride = getTextOverride(elementKeys.header, styleProfile.textOverrides);
+    const bodyOverride = getTextOverride(elementKeys.body, styleProfile.textOverrides);
     const disclaimerOverride = getTextOverride(
       elementKeys.disclaimer,
-      options.parsed.textOverrides
+      styleProfile.textOverrides
     );
     const contentLayouts = buildContentFlowLayouts(
       screenLayout,
       screen,
       elementKeys,
-      options.parsed.textOverrides,
+      styleProfile.textOverrides,
       canvas,
       safeZone
     );
 
-    pushScrimLayer(
-      layers,
-      preview,
-      `Scrim_${screen.id}`,
-      screen.duration,
-      screenLayout.scrim,
-      theme,
-      canvas
-    );
+    if (isScrimEnabled(screen.id, styleProfile)) {
+      pushScrimLayer(
+        layers,
+        preview,
+        `Scrim_${screen.id}`,
+        screen.duration,
+        screenLayout.scrim,
+        theme,
+        canvas
+      );
+    }
     pushPreparedTextLayer(
       layers,
       preview,
@@ -369,15 +377,17 @@ function buildScreenLayers(
           ? getClosingDefaults("accolade").fallbackHeader ?? ""
           : screen.header ?? "";
 
-      pushScrimLayer(
-        layers,
-        preview,
-        `Scrim_${screen.id}`,
-        screen.duration,
-        screenLayout.scrim,
-        theme,
-        canvas
-      );
+      if (isScrimEnabled(screen.id, styleProfile)) {
+        pushScrimLayer(
+          layers,
+          preview,
+          `Scrim_${screen.id}`,
+          screen.duration,
+          screenLayout.scrim,
+          theme,
+          canvas
+        );
+      }
       pushImageLayer(
         layers,
         preview,
@@ -396,7 +406,7 @@ function buildScreenLayers(
         screen.duration,
         5,
         resolvedHeaderLayout,
-        options.parsed.textOverrides,
+        styleProfile.textOverrides,
         headerText,
         theme.header
       );
@@ -407,7 +417,7 @@ function buildScreenLayers(
         screen.duration,
         4,
         resolvedBodyLayout,
-        options.parsed.textOverrides,
+        styleProfile.textOverrides,
         screen.body ?? "",
         theme.body
       );
@@ -432,15 +442,17 @@ function buildScreenLayers(
         safeZone
       );
 
-      pushScrimLayer(
-        layers,
-        preview,
-        `Scrim_${screen.id}`,
-        screen.duration,
-        screenLayout.scrim,
-        theme,
-        canvas
-      );
+      if (isScrimEnabled(screen.id, styleProfile)) {
+        pushScrimLayer(
+          layers,
+          preview,
+          `Scrim_${screen.id}`,
+          screen.duration,
+          screenLayout.scrim,
+          theme,
+          canvas
+        );
+      }
       pushTextLayer(
         layers,
         preview,
@@ -448,7 +460,7 @@ function buildScreenLayers(
         screen.duration,
         5,
         resolvedHeaderLayout,
-        options.parsed.textOverrides,
+        styleProfile.textOverrides,
         screen.header ?? "",
         theme.header
       );
@@ -459,7 +471,7 @@ function buildScreenLayers(
         screen.duration,
         4,
         resolvedBodyLayout,
-        options.parsed.textOverrides,
+        styleProfile.textOverrides,
         screen.body ?? "",
         theme.body
       );
@@ -492,15 +504,17 @@ function buildScreenLayers(
         safeZone
       );
 
-      pushScrimLayer(
-        layers,
-        preview,
-        `Scrim_${screen.id}`,
-        screen.duration,
-        screenLayout.scrim,
-        theme,
-        canvas
-      );
+      if (isScrimEnabled(screen.id, styleProfile)) {
+        pushScrimLayer(
+          layers,
+          preview,
+          `Scrim_${screen.id}`,
+          screen.duration,
+          screenLayout.scrim,
+          theme,
+          canvas
+        );
+      }
       pushImageLayer(
         layers,
         preview,
@@ -517,7 +531,7 @@ function buildScreenLayers(
         screen.duration,
         5,
         resolvedHeaderLayout,
-        options.parsed.textOverrides,
+        styleProfile.textOverrides,
         screen.header ?? "",
         theme.header
       );
@@ -528,7 +542,7 @@ function buildScreenLayers(
         screen.duration,
         4,
         resolvedBodyLayout,
-        options.parsed.textOverrides,
+        styleProfile.textOverrides,
         screen.body ?? "",
         theme.body
       );
@@ -1240,6 +1254,35 @@ function getTextOverride(
   overrides: ParsedBrief["textOverrides"] | undefined
 ): TextLayerOverride | undefined {
   return key ? overrides?.[key] : undefined;
+}
+
+function getEffectiveStyleProfile(
+  parsed: ParsedBrief,
+  backgroundKey: string,
+  size: RenderSize
+): StyleProfile {
+  const scopedKey = getStyleProfileKey(size, backgroundKey);
+  const scopedProfile = scopedKey ? parsed.styleProfiles?.[scopedKey] : undefined;
+
+  return {
+    textOverrides: {
+      ...(parsed.textOverrides ?? {}),
+      ...(scopedProfile?.textOverrides ?? {}),
+    },
+    screenStyleOverrides: {
+      ...(parsed.screenStyleOverrides ?? {}),
+      ...(scopedProfile?.screenStyleOverrides ?? {}),
+    },
+  };
+}
+
+function getStyleProfileKey(size: RenderSize, backgroundKey: string): string | null {
+  if (!backgroundKey) return null;
+  return `${size}|${backgroundKey}`;
+}
+
+function isScrimEnabled(screenId: string, styleProfile: StyleProfile): boolean {
+  return styleProfile.screenStyleOverrides?.[screenId]?.scrimEnabled !== false;
 }
 
 function hasYOverride(override: TextLayerOverride | undefined): boolean {

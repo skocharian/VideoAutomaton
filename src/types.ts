@@ -26,6 +26,8 @@ export type AnalysisRegionKey =
 export interface Env {
   CREATOMATE_API_KEY: string;
   NOTIFY_WEBHOOK_URL: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_STYLING_MODEL?: string;
   KV_JOBS: KVNamespace;
   R2_ASSETS: R2Bucket;
   __STATIC_CONTENT: KVNamespace;
@@ -55,6 +57,15 @@ export interface TextLayerOverride {
   y?: string;
 }
 
+export interface ScreenStyleOverride {
+  scrimEnabled?: boolean;
+}
+
+export interface StyleProfile {
+  textOverrides?: Record<string, TextLayerOverride>;
+  screenStyleOverrides?: Record<string, ScreenStyleOverride>;
+}
+
 export interface ParsedContentScreen extends ScreenText {
   key: string;
   duration: number;
@@ -81,6 +92,8 @@ export interface ParsedBrief {
   closingScreens: ParsedClosingScreen[];
   detectedClosingScreenKeys?: Partial<Record<ClosingScreenKind, string>>;
   textOverrides?: Record<string, TextLayerOverride>;
+  screenStyleOverrides?: Record<string, ScreenStyleOverride>;
+  styleProfiles?: Record<string, StyleProfile>;
   screenDurations: Record<string, number>;
   backgrounds: string[];
   backgroundAnalysis?: Record<string, BackgroundAnalysisRef>;

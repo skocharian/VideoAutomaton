@@ -598,6 +598,57 @@ describe("buildRenderScriptDocument", () => {
       trim_duration: 23.5,
     });
   });
+
+  it("applies background-and-size scoped style profiles without overwriting global defaults", () => {
+    const parsed = makeParsed({
+      textOverrides: {
+        S3_Header: {
+          color: "#ffffff",
+        },
+      },
+      styleProfiles: {
+        "9:16|bg/PinkTrees.mp4": {
+          textOverrides: {
+            S3_Header: {
+              color: "#ffcc00",
+              x: "14%",
+            },
+          },
+          screenStyleOverrides: {
+            "content-3": {
+              scrimEnabled: false,
+            },
+          },
+        },
+      },
+    });
+
+    const preview = buildPreviewModel({
+      parsed,
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+    const document = buildRenderScriptDocument({
+      parsed,
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const previewScreen = preview.slides.find((slide) => slide.sourceKey === "3");
+    const previewHeader = previewScreen?.layers.find((layer) => layer.key === "S3_Header");
+    const renderScreen = getComposition(document, "Screen_3");
+
+    expect(previewHeader?.color).toBe("#ffcc00");
+    expect(parsePercent(previewHeader?.x)).toBeGreaterThanOrEqual(6);
+    expect(getNestedElement(renderScreen, "S3_Header")?.fill_color).toBe("#ffcc00");
+    expect(getNestedElement(renderScreen, "Scrim_content-3")).toBeUndefined();
+  });
 });
 
 describe("background analysis and theme suggestions", () => {
