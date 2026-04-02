@@ -17,9 +17,13 @@ type LayoutTextConfig = {
   y_alignment?: string;
   font_family: string;
   font_size: number;
-  font_weight: number;
+  font_weight: number | string;
+  font_style?: "normal" | "italic";
   line_height: string;
+  letter_spacing?: string;
   text_align: "left" | "center";
+  stroke_color?: string;
+  stroke_width?: number;
 };
 
 type LayoutImageConfig = {

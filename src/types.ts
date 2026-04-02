@@ -55,6 +55,18 @@ export interface TextLayerOverride {
   color?: string;
   x?: string;
   y?: string;
+  fontFamily?: string;
+  fontWeight?: number | string;
+  fontStyle?: "normal" | "italic";
+  lineHeight?: string;
+  textAlign?: "left" | "center";
+  letterSpacing?: string;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowX?: number;
+  shadowY?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
 }
 
 export interface ScreenStyleOverride {
@@ -243,9 +255,17 @@ export interface PreviewLayer {
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: number | string;
+  fontStyle?: "normal" | "italic";
   lineHeight?: string;
+  letterSpacing?: string;
   textAlign?: "left" | "center";
   textShadow?: string;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowX?: number;
+  shadowY?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
   fit?: "contain" | "cover" | "fill";
   borderRadius?: string;
 }

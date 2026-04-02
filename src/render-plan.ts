@@ -69,6 +69,23 @@ type ElementKeys = {
 
 type RenderAnimation = Record<string, RenderValue>;
 
+type ResolvedTextAppearance = {
+  fillColor: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number | string;
+  fontStyle?: "normal" | "italic";
+  lineHeight: string;
+  letterSpacing?: string;
+  textAlign: "left" | "center";
+  shadowColor: string;
+  shadowBlur: number;
+  shadowX: number;
+  shadowY: number;
+  strokeColor?: string;
+  strokeWidth?: number;
+};
+
 export function buildPreviewModel(options: RenderPlanOptions): PreviewModel {
   const slides = buildTimelineScreens(options.parsed, options.variantIndex).map((screen) =>
     buildPreviewSlide(screen, options)
@@ -322,7 +339,7 @@ function buildScreenLayers(
       5,
       contentLayouts.header,
       screen.header ?? "",
-      resolveTheme(theme.header, headerOverride)
+      resolveTextAppearance(contentLayouts.header, theme.header, headerOverride)
     );
     pushPreparedTextLayer(
       layers,
@@ -332,7 +349,7 @@ function buildScreenLayers(
       4,
       contentLayouts.body,
       screen.body ?? "",
-      resolveTheme(theme.body, bodyOverride)
+      resolveTextAppearance(contentLayouts.body, theme.body, bodyOverride)
     );
     pushPreparedTextLayer(
       layers,
@@ -342,7 +359,7 @@ function buildScreenLayers(
       6,
       contentLayouts.disclaimer,
       screen.disclaimer ?? "",
-      resolveTheme(theme.disclaimer, disclaimerOverride)
+      resolveTextAppearance(contentLayouts.disclaimer, theme.disclaimer, disclaimerOverride)
     );
 
     return layers;
@@ -614,6 +631,30 @@ function resolveTextLayout(
     ...(Number.isFinite(override?.fontSize)
       ? { font_size: Number(override?.fontSize) }
       : {}),
+    ...(typeof override?.fontFamily === "string" && override.fontFamily.trim()
+      ? { font_family: override.fontFamily.trim() }
+      : {}),
+    ...(typeof override?.fontWeight !== "undefined"
+      ? { font_weight: override.fontWeight as number | string }
+      : {}),
+    ...(typeof override?.fontStyle === "string" && override.fontStyle.trim()
+      ? { font_style: override.fontStyle }
+      : {}),
+    ...(typeof override?.lineHeight === "string" && override.lineHeight.trim()
+      ? { line_height: override.lineHeight.trim() }
+      : {}),
+    ...(typeof override?.letterSpacing === "string" && override.letterSpacing.trim()
+      ? { letter_spacing: override.letterSpacing.trim() }
+      : {}),
+    ...(typeof override?.textAlign === "string" && override.textAlign.trim()
+      ? { text_align: override.textAlign }
+      : {}),
+    ...(typeof override?.strokeColor === "string" && override.strokeColor.trim()
+      ? { stroke_color: override.strokeColor.trim() }
+      : {}),
+    ...(Number.isFinite(override?.strokeWidth)
+      ? { stroke_width: Number(override?.strokeWidth) }
+      : {}),
     ...(typeof override?.x === "string" && override.x.trim()
       ? { x: override.x.trim() }
       : {}),
@@ -665,7 +706,7 @@ function pushTextLayer(
     track,
     resolvedLayout,
     text,
-    resolveTheme(theme, override)
+    resolveTextAppearance(resolvedLayout, theme, override)
   );
 }
 
@@ -677,14 +718,14 @@ function pushPreparedTextLayer(
   track: number,
   layout: LayoutTextConfig | undefined,
   text: string,
-  theme: ThemeSuggestion | undefined
+  appearance: ResolvedTextAppearance | undefined
 ): void {
   if (!layout || !stripRichTextMarkup(text).trim()) return;
 
   layers.push(
     preview
-      ? buildPreviewTextLayer(key, layout, text, theme)
-      : buildRenderTextElement(key, duration, track, layout, text, theme)
+      ? buildPreviewTextLayer(key, layout, text, appearance)
+      : buildRenderTextElement(key, duration, track, layout, text, appearance)
   );
 }
 
@@ -710,7 +751,7 @@ function buildPreviewTextLayer(
   key: string | undefined,
   layout: LayoutTextConfig,
   text: string,
-  theme: ThemeSuggestion | undefined
+  appearance: ResolvedTextAppearance | undefined
 ): PreviewLayer {
   return {
     key: key ?? crypto.randomUUID(),
@@ -724,22 +765,31 @@ function buildPreviewTextLayer(
     xAlignment: layout.x_alignment,
     yAlignment: layout.y_alignment,
     text,
-    color: theme?.fillColor ?? "#ffffff",
-    fontFamily: layout.font_family,
-    fontSize: layout.font_size,
-    fontWeight: layout.font_weight,
-    lineHeight: layout.line_height,
-    textAlign: layout.text_align,
-    textShadow: buildCssTextShadow(theme),
+    color: appearance?.fillColor ?? "#ffffff",
+    fontFamily: appearance?.fontFamily ?? layout.font_family,
+    fontSize: appearance?.fontSize ?? layout.font_size,
+    fontWeight: appearance?.fontWeight ?? layout.font_weight,
+    fontStyle: appearance?.fontStyle ?? layout.font_style,
+    lineHeight: appearance?.lineHeight ?? layout.line_height,
+    letterSpacing: appearance?.letterSpacing ?? layout.letter_spacing,
+    textAlign: appearance?.textAlign ?? layout.text_align,
+    textShadow: buildCssTextShadow(appearance),
+    shadowColor: appearance?.shadowColor,
+    shadowBlur: appearance?.shadowBlur,
+    shadowX: appearance?.shadowX,
+    shadowY: appearance?.shadowY,
+    strokeColor: appearance?.strokeColor ?? layout.stroke_color,
+    strokeWidth: appearance?.strokeWidth ?? layout.stroke_width,
   };
 }
 
-function resolveTheme(
+function resolveTextAppearance(
+  layout: LayoutTextConfig | undefined,
   theme: ThemeSuggestion | undefined,
   override: TextLayerOverride | undefined
-): ThemeSuggestion | undefined {
-  if (!override?.color?.trim()) {
-    return theme;
+): ResolvedTextAppearance | undefined {
+  if (!layout) {
+    return undefined;
   }
 
   const baseTheme =
@@ -753,8 +803,35 @@ function resolveTheme(
     } satisfies ThemeSuggestion);
 
   return {
-    ...baseTheme,
-    fillColor: override.color.trim(),
+    fillColor: override?.color?.trim() || baseTheme.fillColor,
+    fontFamily: override?.fontFamily?.trim() || layout.font_family,
+    fontSize:
+      Number.isFinite(override?.fontSize) && Number(override?.fontSize) > 0
+        ? Number(override?.fontSize)
+        : layout.font_size,
+    fontWeight: override?.fontWeight ?? layout.font_weight,
+    fontStyle: override?.fontStyle || layout.font_style,
+    lineHeight: override?.lineHeight?.trim() || layout.line_height,
+    letterSpacing: override?.letterSpacing?.trim() || layout.letter_spacing,
+    textAlign: override?.textAlign || layout.text_align,
+    shadowColor: override?.shadowColor?.trim() || baseTheme.shadowColor,
+    shadowBlur:
+      Number.isFinite(override?.shadowBlur) && Number(override?.shadowBlur) >= 0
+        ? Number(override?.shadowBlur)
+        : baseTheme.shadowBlur,
+    shadowX:
+      Number.isFinite(override?.shadowX)
+        ? Number(override?.shadowX)
+        : 0,
+    shadowY:
+      Number.isFinite(override?.shadowY)
+        ? Number(override?.shadowY)
+        : baseTheme.shadowY,
+    strokeColor: override?.strokeColor?.trim() || layout.stroke_color,
+    strokeWidth:
+      Number.isFinite(override?.strokeWidth) && Number(override?.strokeWidth) >= 0
+        ? Number(override?.strokeWidth)
+        : layout.stroke_width,
   };
 }
 
@@ -764,7 +841,7 @@ function buildRenderTextElement(
   track: number,
   layout: LayoutTextConfig,
   text: string,
-  theme: ThemeSuggestion | undefined
+  appearance: ResolvedTextAppearance | undefined
 ): RenderElement {
   const animations = buildTextAnimations(duration, layout.regionId === "content-disclaimer");
   return {
@@ -781,16 +858,23 @@ function buildRenderTextElement(
     ...(layout.y_anchor ? { y_anchor: layout.y_anchor } : {}),
     ...(layout.x_alignment ? { x_alignment: layout.x_alignment } : {}),
     ...(layout.y_alignment ? { y_alignment: layout.y_alignment } : {}),
-    fill_color: theme?.fillColor ?? "#ffffff",
+    fill_color: appearance?.fillColor ?? "#ffffff",
     text: stripRichTextMarkup(text),
-    font_family: layout.font_family,
-    font_size: layout.font_size,
-    font_weight: layout.font_weight,
-    line_height: layout.line_height,
-    text_align: layout.text_align,
-    shadow_color: theme?.shadowColor ?? "rgba(7,26,56,0.72)",
-    shadow_blur: `${theme?.shadowBlur ?? 12}px`,
-    shadow_y: `${theme?.shadowY ?? 2}px`,
+    font_family: appearance?.fontFamily ?? layout.font_family,
+    font_size: appearance?.fontSize ?? layout.font_size,
+    font_weight: appearance?.fontWeight ?? layout.font_weight,
+    ...(appearance?.fontStyle ? { font_style: appearance.fontStyle } : {}),
+    line_height: appearance?.lineHeight ?? layout.line_height,
+    ...(appearance?.letterSpacing ? { letter_spacing: appearance.letterSpacing } : {}),
+    text_align: appearance?.textAlign ?? layout.text_align,
+    shadow_color: appearance?.shadowColor ?? "rgba(7,26,56,0.72)",
+    shadow_blur: `${appearance?.shadowBlur ?? 12}px`,
+    ...(appearance?.shadowX ? { shadow_x: `${appearance.shadowX}px` } : {}),
+    shadow_y: `${appearance?.shadowY ?? 2}px`,
+    ...(appearance?.strokeColor ? { stroke_color: appearance.strokeColor } : {}),
+    ...(Number.isFinite(appearance?.strokeWidth)
+      ? { stroke_width: `${appearance?.strokeWidth}px` }
+      : {}),
     animations,
   };
 }
@@ -1107,7 +1191,7 @@ function estimateTextHeight(
   widthPx: number,
   fontSize: number,
   lineHeightRatio: number,
-  fontWeight: number
+  fontWeight: number | string
 ): number {
   const lines = estimateWrappedLineCount(text, widthPx, fontSize, fontWeight);
   return lines * fontSize * lineHeightRatio;
@@ -1117,9 +1201,10 @@ function estimateWrappedLineCount(
   text: string,
   widthPx: number,
   fontSize: number,
-  fontWeight: number
+  fontWeight: number | string
 ): number {
-  const avgCharWidth = fontSize * (fontWeight >= 700 ? 0.61 : 0.58);
+  const numericWeight = normalizeFontWeightForMetrics(fontWeight);
+  const avgCharWidth = fontSize * (numericWeight >= 700 ? 0.61 : 0.58);
   const maxCharsPerLine = Math.max(1, Math.floor(widthPx / avgCharWidth));
 
   return text
@@ -1154,6 +1239,24 @@ function estimateWrappedLineCount(
 
       return lineCount + paragraphLines;
     }, 0);
+}
+
+function normalizeFontWeightForMetrics(fontWeight: number | string): number {
+  if (typeof fontWeight === "number" && Number.isFinite(fontWeight)) {
+    return fontWeight;
+  }
+
+  if (typeof fontWeight === "string") {
+    const trimmed = fontWeight.trim().toLowerCase();
+    if (trimmed === "bold" || trimmed === "bolder") return 700;
+    if (trimmed === "lighter") return 300;
+    const numeric = Number.parseFloat(trimmed);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+
+  return 400;
 }
 
 function applyTextSafeZone(
@@ -1320,11 +1423,11 @@ function pixelsToPercent(value: number, total: number): number {
   return (value / total) * 100;
 }
 
-function buildCssTextShadow(theme: ThemeSuggestion | undefined): string {
-  if (!theme) {
+function buildCssTextShadow(appearance: ResolvedTextAppearance | undefined): string {
+  if (!appearance) {
     return "0 2px 12px rgba(7, 26, 56, 0.72)";
   }
-  return `0 ${theme.shadowY}px ${theme.shadowBlur}px ${theme.shadowColor}`;
+  return `${appearance.shadowX}px ${appearance.shadowY}px ${appearance.shadowBlur}px ${appearance.shadowColor}`;
 }
 
 function buildTextAnimations(duration: number, subtle = false): RenderAnimation[] {

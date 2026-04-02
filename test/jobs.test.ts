@@ -430,6 +430,16 @@ describe("buildRenderScriptDocument", () => {
           color: "#ffcc00",
           x: "12%",
           y: "14%",
+          fontFamily: "Georgia",
+          fontWeight: 700,
+          fontStyle: "italic",
+          lineHeight: "112%",
+          textAlign: "center",
+          shadowColor: "rgba(0,0,0,0.92)",
+          shadowBlur: 20,
+          shadowY: 4,
+          strokeColor: "#101010",
+          strokeWidth: 2,
         },
       },
     });
@@ -466,6 +476,18 @@ describe("buildRenderScriptDocument", () => {
     expect(parsePercent(previewHeader?.y)).toBeGreaterThanOrEqual(14);
     expect(renderHeader?.font_size).toBe(52);
     expect(renderHeader?.fill_color).toBe("#ffcc00");
+    expect(previewHeader?.fontFamily).toBe("Georgia");
+    expect(previewHeader?.fontStyle).toBe("italic");
+    expect(previewHeader?.textAlign).toBe("center");
+    expect(previewHeader?.strokeColor).toBe("#101010");
+    expect(previewHeader?.strokeWidth).toBe(2);
+    expect(renderHeader?.font_family).toBe("Georgia");
+    expect(renderHeader?.font_style).toBe("italic");
+    expect(renderHeader?.text_align).toBe("center");
+    expect(renderHeader?.shadow_color).toBe("rgba(0,0,0,0.92)");
+    expect(renderHeader?.shadow_blur).toBe("20px");
+    expect(renderHeader?.stroke_color).toBe("#101010");
+    expect(renderHeader?.stroke_width).toBe("2px");
     expect(renderHeader?.track).not.toBe(renderBody?.track);
   });
 

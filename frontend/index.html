@@ -360,6 +360,7 @@
       word-break: break-word;
       text-shadow: 0 2px 12px rgba(7, 26, 56, 0.72);
       overflow: visible;
+      paint-order: stroke fill;
     }
 
     .preview-text-layer strong {
@@ -1725,9 +1726,12 @@
             font-family:${escapeHtml(layer.fontFamily || "Open Sans")};
             font-size:calc(${escapeHtml(String(layer.fontSize || 28))} * 100cqh / var(--preview-canvas-height));
             font-weight:${escapeHtml(String(layer.fontWeight || 600))};
+            font-style:${escapeHtml(layer.fontStyle || "normal")};
             line-height:${escapeHtml(layer.lineHeight || "100%")};
+            letter-spacing:${escapeHtml(layer.letterSpacing || "0px")};
             text-align:${escapeHtml(layer.textAlign || "left")};
             text-shadow:${escapeHtml(layer.textShadow || "0 2px 12px rgba(7, 26, 56, 0.72)")};
+            -webkit-text-stroke:${escapeHtml(layer.strokeWidth ? `${layer.strokeWidth}px ${layer.strokeColor || "#000000"}` : "0 transparent")};
           "
         >${renderRichTextHtml(layer.text || "")}</div>
       `;
@@ -1835,13 +1839,19 @@
 
       const activeStyleProfile = ensureCurrentStyleProfile();
       if (activeStyleProfile) {
-        activeStyleProfile.textOverrides = {};
+        activeStyleProfile.textOverrides = { ...(activeStyleProfile.textOverrides || {}) };
       } else {
-        parsedData.textOverrides = {};
+        parsedData.textOverrides = { ...(parsedData.textOverrides || {}) };
       }
       const targetTextOverrides = activeStyleProfile
         ? activeStyleProfile.textOverrides
         : parsedData.textOverrides;
+      Object.values(targetTextOverrides).forEach((override) => {
+        delete override.fontSize;
+        delete override.color;
+        delete override.x;
+        delete override.y;
+      });
       document.querySelectorAll("[data-style-element]").forEach((input) => {
         const elementName = input.dataset.styleElement;
         const prop = input.dataset.styleProp;
@@ -1956,9 +1966,17 @@
                   fontFamily: layer.fontFamily,
                   fontSize: layer.fontSize,
                   fontWeight: layer.fontWeight,
+                  fontStyle: layer.fontStyle,
                   lineHeight: layer.lineHeight,
+                  letterSpacing: layer.letterSpacing,
                   textAlign: layer.textAlign,
                   color: layer.color,
+                  shadowColor: layer.shadowColor,
+                  shadowBlur: layer.shadowBlur,
+                  shadowX: layer.shadowX,
+                  shadowY: layer.shadowY,
+                  strokeColor: layer.strokeColor,
+                  strokeWidth: layer.strokeWidth,
                 })),
             })),
           }),
@@ -1995,6 +2013,7 @@
       let changedPositions = 0;
       let changedFontSizes = 0;
       let changedScrims = 0;
+      let changedTypography = 0;
 
       for (const recommendation of suggestion.recommendations || []) {
         for (const layer of recommendation.layers || []) {
@@ -2005,12 +2024,36 @@
             ...(layer.color ? { color: layer.color } : {}),
             ...(layer.x ? { x: layer.x } : {}),
             ...(layer.y ? { y: layer.y } : {}),
+            ...(layer.fontFamily ? { fontFamily: layer.fontFamily } : {}),
+            ...(typeof layer.fontWeight !== "undefined" ? { fontWeight: layer.fontWeight } : {}),
+            ...(layer.fontStyle ? { fontStyle: layer.fontStyle } : {}),
+            ...(layer.lineHeight ? { lineHeight: layer.lineHeight } : {}),
+            ...(layer.textAlign ? { textAlign: layer.textAlign } : {}),
+            ...(layer.letterSpacing ? { letterSpacing: layer.letterSpacing } : {}),
+            ...(layer.shadowColor ? { shadowColor: layer.shadowColor } : {}),
+            ...(Number.isFinite(layer.shadowBlur) ? { shadowBlur: Number(layer.shadowBlur) } : {}),
+            ...(Number.isFinite(layer.shadowX) ? { shadowX: Number(layer.shadowX) } : {}),
+            ...(Number.isFinite(layer.shadowY) ? { shadowY: Number(layer.shadowY) } : {}),
+            ...(layer.strokeColor ? { strokeColor: layer.strokeColor } : {}),
+            ...(Number.isFinite(layer.strokeWidth) ? { strokeWidth: Number(layer.strokeWidth) } : {}),
           };
           const layerChanged =
             next.fontSize !== previous.fontSize ||
             next.color !== previous.color ||
             next.x !== previous.x ||
-            next.y !== previous.y;
+            next.y !== previous.y ||
+            next.fontFamily !== previous.fontFamily ||
+            next.fontWeight !== previous.fontWeight ||
+            next.fontStyle !== previous.fontStyle ||
+            next.lineHeight !== previous.lineHeight ||
+            next.textAlign !== previous.textAlign ||
+            next.letterSpacing !== previous.letterSpacing ||
+            next.shadowColor !== previous.shadowColor ||
+            next.shadowBlur !== previous.shadowBlur ||
+            next.shadowX !== previous.shadowX ||
+            next.shadowY !== previous.shadowY ||
+            next.strokeColor !== previous.strokeColor ||
+            next.strokeWidth !== previous.strokeWidth;
           if (layerChanged) {
             changedLayers += 1;
           }
@@ -2022,6 +2065,22 @@
           }
           if (next.x !== previous.x || next.y !== previous.y) {
             changedPositions += 1;
+          }
+          if (
+            next.fontFamily !== previous.fontFamily ||
+            next.fontWeight !== previous.fontWeight ||
+            next.fontStyle !== previous.fontStyle ||
+            next.lineHeight !== previous.lineHeight ||
+            next.textAlign !== previous.textAlign ||
+            next.letterSpacing !== previous.letterSpacing ||
+            next.shadowColor !== previous.shadowColor ||
+            next.shadowBlur !== previous.shadowBlur ||
+            next.shadowX !== previous.shadowX ||
+            next.shadowY !== previous.shadowY ||
+            next.strokeColor !== previous.strokeColor ||
+            next.strokeWidth !== previous.strokeWidth
+          ) {
+            changedTypography += 1;
           }
           profile.textOverrides[layer.key] = {
             ...next,
@@ -2053,6 +2112,7 @@
         changedPositions,
         changedFontSizes,
         changedScrims,
+        changedTypography,
       };
     }
 
@@ -2075,6 +2135,9 @@
       }
       if (stats.changedScrims) {
         parts.push(`${stats.changedScrims} scrim`);
+      }
+      if (stats.changedTypography) {
+        parts.push(`${stats.changedTypography} typography`);
       }
 
       return `Applied ${parts.join(", ")} change${parts.length === 1 ? "" : "s"} across ${count} screen${count === 1 ? "" : "s"} for ${previewState.size} / ${previewState.background || "default"}.`;

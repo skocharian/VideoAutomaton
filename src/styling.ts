@@ -29,11 +29,39 @@ export type StylingSuggestionRequest = {
       fontFamily?: string;
       fontSize?: number;
       fontWeight?: number | string;
+      fontStyle?: "normal" | "italic";
       lineHeight?: string;
+      letterSpacing?: string;
       textAlign?: string;
       color?: string;
+      shadowColor?: string;
+      shadowBlur?: number;
+      shadowX?: number;
+      shadowY?: number;
+      strokeColor?: string;
+      strokeWidth?: number;
     }>;
   }>;
+};
+
+type StylingRecommendationLayer = {
+  key: string;
+  fontSize?: number;
+  color?: string;
+  x?: string;
+  y?: string;
+  fontFamily?: string;
+  fontWeight?: number | string;
+  fontStyle?: "normal" | "italic";
+  lineHeight?: string;
+  letterSpacing?: string;
+  textAlign?: "left" | "center";
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowX?: number;
+  shadowY?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
 };
 
 export type StylingSuggestionResponse = {
@@ -44,13 +72,7 @@ export type StylingSuggestionResponse = {
     scrim?: {
       enabled: boolean;
     };
-    layers: Array<{
-      key: string;
-      fontSize?: number;
-      color?: string;
-      x?: string;
-      y?: string;
-    }>;
+    layers: StylingRecommendationLayer[];
   }>;
 };
 
@@ -86,6 +108,20 @@ const stylingSchema = {
                 color: { type: "string" },
                 x: { type: "string" },
                 y: { type: "string" },
+                fontFamily: { type: "string" },
+                fontWeight: {
+                  anyOf: [{ type: "number" }, { type: "string" }],
+                },
+                fontStyle: { type: "string" },
+                lineHeight: { type: "string" },
+                letterSpacing: { type: "string" },
+                textAlign: { type: "string" },
+                shadowColor: { type: "string" },
+                shadowBlur: { type: "number" },
+                shadowX: { type: "number" },
+                shadowY: { type: "number" },
+                strokeColor: { type: "string" },
+                strokeWidth: { type: "number" },
               },
               required: ["key"],
             },
@@ -187,7 +223,7 @@ function buildRequestBody(
           {
             type: "input_text",
             text:
-              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. You may use any tasteful 6-digit hex text color if it improves contrast with the background. Prefer elegant, high-contrast colors over washed-out or low-contrast ones. Prioritize improving text color before making large positional changes. Do not invent new layer keys. Prefer minimal layout changes when the current composition is already strong, but do change colors when readability or polish would improve. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
+              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. You may change text color, font family, font weight, font style, line height, shadow, glow-like shadow blur, stroke, and position. You may use any tasteful 6-digit hex text color if it improves contrast with the background. Prefer elegant, high-contrast colors over washed-out or low-contrast ones. You may use common serif or sans-serif fonts such as Georgia, Times New Roman, Baskerville, Garamond, Palatino, Open Sans, Arial, Helvetica, serif, and sans-serif. Do not invent new layer keys. Prefer minimal layout changes when the current composition is already strong, but do change typography treatment when readability or polish would improve. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
           },
         ],
       },
@@ -198,8 +234,9 @@ function buildRequestBody(
             type: "input_text",
             text:
               "Recommend styling overrides for these ad slides.\n" +
-              "Primary goal: choose text colors that read clearly against the actual background and feel premium.\n" +
+              "Primary goal: choose typography that reads clearly against the actual background and feels premium.\n" +
               "You are allowed to keep white, but only when it is clearly the best choice. Otherwise choose a better contrasting hex color.\n" +
+              "You may change font family and add stronger shadow, stroke, or glow-like blur when that improves readability.\n" +
               "Avoid muddy grays or colors too close to the background.\n" +
               "Return JSON matching this shape exactly: " +
               JSON.stringify(
@@ -214,7 +251,17 @@ function buildRequestBody(
                         {
                           key: "string",
                           fontSize: 42,
+                          fontFamily: "Georgia",
+                          fontWeight: 700,
+                          fontStyle: "normal",
                           color: "#ffffff",
+                          lineHeight: "108%",
+                          textAlign: "center",
+                          shadowColor: "rgba(0,0,0,0.9)",
+                          shadowBlur: 18,
+                          shadowY: 3,
+                          strokeColor: "#1a1a1a",
+                          strokeWidth: 1.5,
                           x: "8%",
                           y: "16%",
                         },
@@ -328,31 +375,13 @@ function sanitizeStylingSuggestions(
   };
 }
 
-function sanitizeLayerOverride(layer: {
-  key: string;
-  fontSize?: number;
-  color?: string;
-  x?: string;
-  y?: string;
-}): {
-  key: string;
-  fontSize?: number;
-  color?: string;
-  x?: string;
-  y?: string;
-} {
-  const sanitized: {
-    key: string;
-    fontSize?: number;
-    color?: string;
-    x?: string;
-    y?: string;
-  } = { key: layer.key };
+function sanitizeLayerOverride(layer: StylingRecommendationLayer): StylingRecommendationLayer {
+  const sanitized: StylingRecommendationLayer = { key: layer.key };
 
   if (Number.isFinite(layer.fontSize)) {
     sanitized.fontSize = clampNumber(Number(layer.fontSize), 10, 96);
   }
-  if (typeof layer.color === "string" && /^#?[0-9a-f]{6}$/i.test(layer.color.trim())) {
+  if (isHexColor(layer.color)) {
     sanitized.color = normalizeHex(layer.color);
   }
   if (typeof layer.x === "string" && isPercentString(layer.x)) {
@@ -360,6 +389,50 @@ function sanitizeLayerOverride(layer: {
   }
   if (typeof layer.y === "string" && isPercentString(layer.y)) {
     sanitized.y = normalizePercent(layer.y);
+  }
+  if (typeof layer.fontFamily === "string") {
+    const fontFamily = normalizeFontFamily(layer.fontFamily);
+    if (fontFamily) {
+      sanitized.fontFamily = fontFamily;
+    }
+  }
+  if (typeof layer.fontWeight === "number" && Number.isFinite(layer.fontWeight)) {
+    sanitized.fontWeight = clampNumber(Math.round(layer.fontWeight), 100, 900);
+  } else if (typeof layer.fontWeight === "string") {
+    const fontWeight = normalizeFontWeight(layer.fontWeight);
+    if (fontWeight) {
+      sanitized.fontWeight = fontWeight;
+    }
+  }
+  if (layer.fontStyle === "normal" || layer.fontStyle === "italic") {
+    sanitized.fontStyle = layer.fontStyle;
+  }
+  if (typeof layer.lineHeight === "string" && isLineHeightString(layer.lineHeight)) {
+    sanitized.lineHeight = normalizeLineHeight(layer.lineHeight);
+  }
+  if (typeof layer.letterSpacing === "string" && isLetterSpacingString(layer.letterSpacing)) {
+    sanitized.letterSpacing = normalizeLetterSpacing(layer.letterSpacing);
+  }
+  if (layer.textAlign === "left" || layer.textAlign === "center") {
+    sanitized.textAlign = layer.textAlign;
+  }
+  if (isColorString(layer.shadowColor)) {
+    sanitized.shadowColor = normalizeColor(layer.shadowColor);
+  }
+  if (Number.isFinite(layer.shadowBlur)) {
+    sanitized.shadowBlur = clampNumber(Number(layer.shadowBlur), 0, 40);
+  }
+  if (Number.isFinite(layer.shadowX)) {
+    sanitized.shadowX = clampNumber(Number(layer.shadowX), -20, 20);
+  }
+  if (Number.isFinite(layer.shadowY)) {
+    sanitized.shadowY = clampNumber(Number(layer.shadowY), -20, 20);
+  }
+  if (isColorString(layer.strokeColor)) {
+    sanitized.strokeColor = normalizeColor(layer.strokeColor);
+  }
+  if (Number.isFinite(layer.strokeWidth)) {
+    sanitized.strokeWidth = clampNumber(Number(layer.strokeWidth), 0, 8);
   }
 
   return sanitized;
@@ -370,6 +443,41 @@ function normalizeHex(value: string): string {
   return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
 }
 
+function normalizeColor(value: string): string {
+  const trimmed = value.trim();
+  if (isHexColor(trimmed)) {
+    return normalizeHex(trimmed);
+  }
+  return trimmed;
+}
+
+function isHexColor(value: string | undefined): value is string {
+  return typeof value === "string" && /^#?[0-9a-f]{6}$/i.test(value.trim());
+}
+
+function isColorString(value: string | undefined): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return (
+    /^#?[0-9a-f]{6}$/i.test(trimmed) ||
+    /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(
+      trimmed
+    )
+  );
+}
+
+function normalizeFontFamily(value: string): string | undefined {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed || trimmed.length > 80) return undefined;
+  if (!/^[A-Za-z0-9 ,"'_-]+$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+function normalizeFontWeight(value: string): string | undefined {
+  const trimmed = value.trim().toLowerCase();
+  return ["normal", "bold", "lighter", "bolder"].includes(trimmed) ? trimmed : undefined;
+}
+
 function isPercentString(value: string): boolean {
   return /^\s*-?\d+(?:\.\d+)?%\s*$/.test(value);
 }
@@ -377,6 +485,34 @@ function isPercentString(value: string): boolean {
 function normalizePercent(value: string): string {
   const numeric = Number.parseFloat(value.replace("%", ""));
   return `${clampNumber(numeric, 0, 100)}%`;
+}
+
+function isLineHeightString(value: string): boolean {
+  return /^\s*\d+(?:\.\d+)?%?\s*$/.test(value);
+}
+
+function normalizeLineHeight(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.endsWith("%")) {
+    const numeric = Number.parseFloat(trimmed.slice(0, -1));
+    return `${clampNumber(numeric, 60, 180)}%`;
+  }
+  const numeric = Number.parseFloat(trimmed);
+  return `${clampNumber(numeric, 0.6, 1.8)}`;
+}
+
+function isLetterSpacingString(value: string): boolean {
+  return /^\s*-?\d+(?:\.\d+)?(?:px|em)?\s*$/.test(value);
+}
+
+function normalizeLetterSpacing(value: string): string {
+  const trimmed = value.trim();
+  const unit = trimmed.endsWith("em") ? "em" : "px";
+  const numeric = Number.parseFloat(trimmed.replace(/(px|em)$/i, ""));
+  if (unit === "em") {
+    return `${clampNumber(numeric, -0.1, 0.2)}em`;
+  }
+  return `${clampNumber(numeric, -3, 8)}px`;
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -389,13 +525,7 @@ export function getStyleProfileKey(size: RenderSize, backgroundKey: string): str
 
 export function mergeTextOverrides(
   base: Record<string, TextLayerOverride> | undefined,
-  incoming: Array<{
-    key: string;
-    fontSize?: number;
-    color?: string;
-    x?: string;
-    y?: string;
-  }>
+  incoming: StylingRecommendationLayer[]
 ): Record<string, TextLayerOverride> {
   const merged = { ...(base ?? {}) };
   for (const layer of incoming) {
@@ -405,6 +535,18 @@ export function mergeTextOverrides(
       ...(layer.color ? { color: layer.color } : {}),
       ...(layer.x ? { x: layer.x } : {}),
       ...(layer.y ? { y: layer.y } : {}),
+      ...(layer.fontFamily ? { fontFamily: layer.fontFamily } : {}),
+      ...(typeof layer.fontWeight !== "undefined" ? { fontWeight: layer.fontWeight } : {}),
+      ...(layer.fontStyle ? { fontStyle: layer.fontStyle } : {}),
+      ...(layer.lineHeight ? { lineHeight: layer.lineHeight } : {}),
+      ...(layer.letterSpacing ? { letterSpacing: layer.letterSpacing } : {}),
+      ...(layer.textAlign ? { textAlign: layer.textAlign } : {}),
+      ...(layer.shadowColor ? { shadowColor: layer.shadowColor } : {}),
+      ...(Number.isFinite(layer.shadowBlur) ? { shadowBlur: Number(layer.shadowBlur) } : {}),
+      ...(Number.isFinite(layer.shadowX) ? { shadowX: Number(layer.shadowX) } : {}),
+      ...(Number.isFinite(layer.shadowY) ? { shadowY: Number(layer.shadowY) } : {}),
+      ...(layer.strokeColor ? { strokeColor: layer.strokeColor } : {}),
+      ...(Number.isFinite(layer.strokeWidth) ? { strokeWidth: Number(layer.strokeWidth) } : {}),
     };
   }
   return merged;
