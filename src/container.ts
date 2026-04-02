@@ -90,6 +90,7 @@ export async function triggerBackgroundSpeedTransform(
       speed,
       derivedAssetKey,
       uploadTarget,
+      callbackUrl: `${workerOrigin}/prepareBackgrounds/status`,
     }),
   });
 

@@ -30,7 +30,11 @@ import { BackgroundAnalyzer, triggerBackgroundAnalysis } from "./container";
 import { buildPreviewModel } from "./render-plan";
 import { getRenderLayoutConfig } from "./render-layout";
 import { suggestStyling, type StylingSuggestionRequest } from "./styling";
-import { getBackgroundSpeed, prepareBackgroundVariants } from "./speed";
+import {
+  getBackgroundSpeed,
+  prepareBackgroundVariants,
+  writeBackgroundSpeedPreparationState,
+} from "./speed";
 import { buildTintedAssetSvg, normalizeTintHexColor } from "./tinted-assets";
 
 const { preflight, corsify } = cors();
@@ -151,7 +155,7 @@ router.post("/createJobs", async (request, env) => {
   });
 });
 
-router.post("/prepareBackgrounds", async (request, env, ctx) => {
+router.post("/prepareBackgrounds", async (request, env) => {
   const body = (await request.json()) as {
     parsed: ReturnType<typeof parseBrief>;
   };
@@ -161,9 +165,7 @@ router.post("/prepareBackgrounds", async (request, env, ctx) => {
   }
 
   const workerDomain = new URL(request.url).origin;
-  const prepared = await prepareBackgroundVariants(body.parsed, env, workerDomain, (task) => {
-    ctx.waitUntil(task.catch(console.error));
-  });
+  const prepared = await prepareBackgroundVariants(body.parsed, env, workerDomain);
 
   return json({
     preparedBackgrounds: Object.fromEntries(
@@ -173,6 +175,31 @@ router.post("/prepareBackgrounds", async (request, env, ctx) => {
     ),
     prepared,
   });
+});
+
+router.post("/prepareBackgrounds/status", async (request, env) => {
+  const body = (await request.json()) as {
+    background: string;
+    speed: number;
+    preparedKey: string;
+    status: "processing" | "ready" | "failed";
+    error?: string;
+  };
+
+  if (!body.background || !body.preparedKey || !Number.isFinite(body.speed) || !body.status) {
+    return error(400, "Missing background speed preparation status payload");
+  }
+
+  await writeBackgroundSpeedPreparationState(env, {
+    background: body.background,
+    speed: body.speed,
+    preparedKey: body.preparedKey,
+    status: body.status,
+    updatedAt: new Date().toISOString(),
+    ...(body.error ? { error: body.error } : {}),
+  });
+
+  return json({ ok: true });
 });
 
 router.post("/webhook", async (request, env) => {

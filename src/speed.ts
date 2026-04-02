@@ -3,7 +3,7 @@ import { normalizeBackgroundSpeed } from "./parser";
 import type { Env, ParsedBrief } from "./types";
 
 export type BackgroundPreparationStatus = "pending" | "processing" | "ready" | "failed";
-const STALE_PREPARATION_MS = 5 * 60 * 1000;
+const STALE_PREPARATION_MS = 2 * 60 * 1000;
 
 export interface SpeedAdjustedBackgroundTarget {
   background: string;
@@ -45,15 +45,12 @@ export function listSpeedAdjustedBackgrounds(
 export async function prepareBackgroundVariants(
   parsed: ParsedBrief,
   env: Env,
-  workerOrigin: string,
-  enqueue: (task: Promise<unknown>) => void = (task) => {
-    void task;
-  }
+  workerOrigin: string
 ): Promise<PreparedBackgroundVariant[]> {
   const targets = listSpeedAdjustedBackgrounds(parsed);
   return Promise.all(
     targets.map(({ background, speed }) =>
-      queueBackgroundSpeedPreparation(env, workerOrigin, background, speed, enqueue)
+      queueBackgroundSpeedPreparation(env, workerOrigin, background, speed)
     )
   );
 }
@@ -94,8 +91,7 @@ export async function queueBackgroundSpeedPreparation(
   env: Env,
   workerOrigin: string,
   backgroundKey: string,
-  requestedSpeed: number,
-  enqueue: (task: Promise<unknown>) => void
+  requestedSpeed: number
 ): Promise<PreparedBackgroundVariant> {
   const speed = normalizeBackgroundSpeed(requestedSpeed);
   const derivedKey = getDerivedBackgroundKey(backgroundKey, speed);
@@ -154,8 +150,25 @@ export async function queueBackgroundSpeedPreparation(
     updatedAt: now,
   };
   await writeBackgroundSpeedPreparation(env, pendingState);
-  enqueue(runBackgroundSpeedPreparation(env, workerOrigin, backgroundKey, speed));
-  return pendingState;
+  try {
+    await startBackgroundSpeedPreparation(env, workerOrigin, backgroundKey, speed);
+    const processingState: PreparedBackgroundVariant = {
+      ...pendingState,
+      status: "processing",
+      updatedAt: new Date().toISOString(),
+    };
+    await writeBackgroundSpeedPreparation(env, processingState);
+    return processingState;
+  } catch (error) {
+    const failedState: PreparedBackgroundVariant = {
+      ...pendingState,
+      status: "failed",
+      updatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+    };
+    await writeBackgroundSpeedPreparation(env, failedState);
+    return failedState;
+  }
 }
 
 export async function readBackgroundSpeedPreparation(
@@ -172,42 +185,11 @@ export async function readBackgroundSpeedPreparation(
   return JSON.parse(raw) as PreparedBackgroundVariant;
 }
 
-async function runBackgroundSpeedPreparation(
+export async function writeBackgroundSpeedPreparationState(
   env: Env,
-  workerOrigin: string,
-  backgroundKey: string,
-  requestedSpeed: number
+  state: PreparedBackgroundVariant
 ): Promise<void> {
-  const speed = normalizeBackgroundSpeed(requestedSpeed);
-  const derivedKey = getDerivedBackgroundKey(backgroundKey, speed);
-
-  await writeBackgroundSpeedPreparation(env, {
-    background: backgroundKey,
-    speed,
-    preparedKey: derivedKey,
-    status: "processing",
-    updatedAt: new Date().toISOString(),
-  });
-
-  try {
-    await prepareBackgroundSpeedVariantNow(env, workerOrigin, backgroundKey, speed);
-    await writeBackgroundSpeedPreparation(env, {
-      background: backgroundKey,
-      speed,
-      preparedKey: derivedKey,
-      status: "ready",
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    await writeBackgroundSpeedPreparation(env, {
-      background: backgroundKey,
-      speed,
-      preparedKey: derivedKey,
-      status: "failed",
-      updatedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  await writeBackgroundSpeedPreparation(env, state);
 }
 
 async function prepareBackgroundSpeedVariantNow(
@@ -239,6 +221,31 @@ async function prepareBackgroundSpeedVariantNow(
   );
 
   return derivedKey;
+}
+
+async function startBackgroundSpeedPreparation(
+  env: Env,
+  workerOrigin: string,
+  backgroundKey: string,
+  requestedSpeed: number
+): Promise<void> {
+  const speed = normalizeBackgroundSpeed(requestedSpeed);
+  const derivedKey = getDerivedBackgroundKey(backgroundKey, speed);
+
+  if (!env.BACKGROUND_ANALYZER) {
+    throw new Error("Background speed transforms require the background analyzer container");
+  }
+
+  const uploadTarget = await getUploadUrl(env, derivedKey, "video/mp4", workerOrigin);
+  const { triggerBackgroundSpeedTransform } = await import("./container");
+  await triggerBackgroundSpeedTransform(
+    env,
+    workerOrigin,
+    backgroundKey,
+    speed,
+    derivedKey,
+    uploadTarget
+  );
 }
 
 async function writeBackgroundSpeedPreparation(

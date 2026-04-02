@@ -8,6 +8,7 @@ import { analyzeBackgroundFile } from "../scripts/background-analysis-lib.mjs";
 
 const port = Number(process.env.PORT || 8080);
 const execFileAsync = promisify(execFile);
+const activeSpeedJobs = new Map();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -80,71 +81,31 @@ const server = http.createServer(async (req, res) => {
         !body.assetUrl ||
         !body.derivedAssetKey ||
         !body.uploadTarget?.uploadUrl ||
-        !Number.isFinite(body.speed)
+        !Number.isFinite(body.speed) ||
+        !body.callbackUrl
       ) {
         return sendJson(res, 400, {
-          error: "Missing assetKey, assetUrl, derivedAssetKey, speed, or upload target",
+          error: "Missing assetKey, assetUrl, derivedAssetKey, speed, upload target, or callbackUrl",
         });
       }
 
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "bg-speed-"));
-      const sourceFile = path.join(tempDir, sanitizeFileName(body.assetKey));
-      const outputFile = path.join(tempDir, "derived.mp4");
-
-      try {
-        const assetResponse = await fetch(body.assetUrl);
-        if (!assetResponse.ok) {
-          return sendJson(res, 502, {
-            error: `Unable to fetch asset ${body.assetUrl}: ${assetResponse.status}`,
-          });
-        }
-
-        const bytes = new Uint8Array(await assetResponse.arrayBuffer());
-        await fs.writeFile(sourceFile, bytes);
-        await transformBackgroundSpeed(sourceFile, outputFile, Number(body.speed));
-
-        const outputBytes = await fs.readFile(outputFile);
-        const uploadResponse = await fetch(body.uploadTarget.uploadUrl, {
-          method: body.uploadTarget.method || "PUT",
-          headers: body.uploadTarget.headers || {
-            "Content-Type": "video/mp4",
-          },
-          body: outputBytes,
-        });
-
-        if (!uploadResponse.ok) {
-          return sendJson(res, 502, {
-            error: `Failed to upload derived asset: ${uploadResponse.status}`,
-          });
-        }
-
-        if (body.uploadTarget.completeUrl) {
-          const completeResponse = await fetch(body.uploadTarget.completeUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              contentType: "video/mp4",
-            }),
-          });
-
-          if (!completeResponse.ok) {
-            return sendJson(res, 502, {
-              error: `Failed to finalize derived upload: ${completeResponse.status}`,
-            });
-          }
-        }
-
-        return sendJson(res, 200, {
-          ok: true,
-          assetKey: body.assetKey,
-          derivedAssetKey: body.derivedAssetKey,
-          speed: body.speed,
-        });
-      } finally {
-        await fs.rm(tempDir, { recursive: true, force: true });
+      const jobKey = `${body.derivedAssetKey}:${Number(body.speed).toFixed(2)}`;
+      if (!activeSpeedJobs.has(jobKey)) {
+        activeSpeedJobs.set(
+          jobKey,
+          runSpeedJob(body).finally(() => {
+            activeSpeedJobs.delete(jobKey);
+          })
+        );
       }
+
+      return sendJson(res, 202, {
+        ok: true,
+        assetKey: body.assetKey,
+        derivedAssetKey: body.derivedAssetKey,
+        speed: body.speed,
+        status: "processing",
+      });
     }
 
     return sendJson(res, 404, { error: "Not found" });
@@ -185,6 +146,64 @@ function sanitizeFileName(assetKey) {
   return baseName.replace(/[^a-z0-9._-]+/gi, "-");
 }
 
+async function runSpeedJob(body) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "bg-speed-"));
+  const sourceFile = path.join(tempDir, sanitizeFileName(body.assetKey));
+  const outputFile = path.join(tempDir, "derived.mp4");
+
+  try {
+    await postSpeedStatus(body, "processing");
+
+    const assetResponse = await fetch(body.assetUrl);
+    if (!assetResponse.ok) {
+      throw new Error(`Unable to fetch asset ${body.assetUrl}: ${assetResponse.status}`);
+    }
+
+    const bytes = new Uint8Array(await assetResponse.arrayBuffer());
+    await fs.writeFile(sourceFile, bytes);
+    await transformBackgroundSpeed(sourceFile, outputFile, Number(body.speed));
+
+    const outputBytes = await fs.readFile(outputFile);
+    const uploadResponse = await fetch(body.uploadTarget.uploadUrl, {
+      method: body.uploadTarget.method || "PUT",
+      headers: body.uploadTarget.headers || {
+        "Content-Type": "video/mp4",
+      },
+      body: outputBytes,
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Failed to upload derived asset: ${uploadResponse.status}`);
+    }
+
+    if (body.uploadTarget.completeUrl) {
+      const completeResponse = await fetch(body.uploadTarget.completeUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contentType: "video/mp4",
+        }),
+      });
+
+      if (!completeResponse.ok) {
+        throw new Error(`Failed to finalize derived upload: ${completeResponse.status}`);
+      }
+    }
+
+    await postSpeedStatus(body, "ready");
+  } catch (error) {
+    await postSpeedStatus(
+      body,
+      "failed",
+      error instanceof Error ? error.message : String(error)
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function transformBackgroundSpeed(input, output, speed) {
   const safeSpeed = Math.max(0.5, Math.min(3, Number(speed)));
   const setpts = (1 / safeSpeed).toFixed(6);
@@ -208,4 +227,24 @@ async function transformBackgroundSpeed(input, output, speed) {
     "-y",
     output,
   ]);
+}
+
+async function postSpeedStatus(body, status, error) {
+  const response = await fetch(body.callbackUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      background: body.assetKey,
+      speed: Number(body.speed),
+      preparedKey: body.derivedAssetKey,
+      status,
+      ...(error ? { error } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    console.error("Failed to post speed status", status, await response.text());
+  }
 }
