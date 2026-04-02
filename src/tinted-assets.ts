@@ -48,9 +48,14 @@ export function buildTintedAssetSvg(
   sourceBuffer: ArrayBuffer,
   color?: string
 ): string {
-  const mimeType = sourceContentType || "image/png";
-  const sourceDataUrl = `data:${mimeType};base64,${arrayBufferToBase64(sourceBuffer)}`;
   const tintColor = normalizeTintHexColor(color);
+  const mimeType = sourceContentType || "image/png";
+
+  if (isSvgAsset(mimeType, sourceBuffer)) {
+    return tintSvgMarkup(new TextDecoder().decode(sourceBuffer), tintColor);
+  }
+
+  const sourceDataUrl = `data:${mimeType};base64,${arrayBufferToBase64(sourceBuffer)}`;
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">`,
@@ -65,6 +70,50 @@ export function buildTintedAssetSvg(
     )}" filter="url(#recolor)" />`,
     `</svg>`,
   ].join("");
+}
+
+function isSvgAsset(contentType: string, sourceBuffer: ArrayBuffer): boolean {
+  if (contentType.includes("svg")) {
+    return true;
+  }
+
+  const prefix = new TextDecoder()
+    .decode(sourceBuffer.slice(0, Math.min(sourceBuffer.byteLength, 256)))
+    .trimStart();
+  return prefix.startsWith("<svg") || prefix.startsWith("<?xml");
+}
+
+function tintSvgMarkup(svgMarkup: string, tintColor: string): string {
+  let tinted = svgMarkup;
+
+  tinted = tinted.replace(
+    /(<svg\b[^>]*)(>)/i,
+    (match, openTag, close) => {
+      let nextTag = openTag;
+      if (!/\boverflow\s*=/.test(nextTag)) {
+        nextTag += ` overflow="hidden"`;
+      }
+      if (!/\bpreserveAspectRatio\s*=/.test(nextTag)) {
+        nextTag += ` preserveAspectRatio="xMidYMid meet"`;
+      }
+      return `${nextTag}${close}`;
+    }
+  );
+
+  tinted = replaceSvgPaint(tinted, tintColor);
+  return tinted;
+}
+
+function replaceSvgPaint(svgMarkup: string, tintColor: string): string {
+  return svgMarkup
+    .replace(
+      /\b(fill|stroke)\s*=\s*(['"])(?!none\b)([^'"]+)\2/gi,
+      (_match, property, quote) => `${property}=${quote}${tintColor}${quote}`
+    )
+    .replace(
+      /\b(fill|stroke)\s*:\s*(?!none\b)([^;"'}]+)/gi,
+      (_match, property) => `${property}: ${tintColor}`
+    );
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
