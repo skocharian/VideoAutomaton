@@ -22,6 +22,7 @@ import { buildTintedAssetUrl, normalizeTintHexColor } from "./tinted-assets";
 import type {
   BackgroundAnalysisArtifact,
   ClosingScreenKind,
+  ImageLayerOverride,
   ParsedBrief,
   ParsedClosingScreen,
   ParsedContentScreen,
@@ -445,7 +446,8 @@ function buildScreenLayers(
               options.parsed.accolade,
               accoladeImageColor
             )
-          : ""
+          : "",
+        accoladeImageColor
       );
       pushTextLayer(
         layers,
@@ -674,11 +676,11 @@ function getElementKeys(screen: TimelineScreen): ElementKeys {
   }
 
   if (screen.kind === "accolade") {
-    return {
-      header: "Closing_Accolade_Header",
-      body: "Closing_Accolade_Body",
-      image: "Closing_Accolade_Image",
-    };
+      return {
+        header: "Closing_Accolade_Header",
+        body: "Closing_Accolade_Body",
+        image: "Closing_Accolade_Image",
+      };
   }
 
   if (screen.kind === "testimonial") {
@@ -812,13 +814,14 @@ function pushImageLayer(
   duration: number,
   track: number,
   layout: LayoutImageConfig,
-  src: string
+  src: string,
+  tintColor?: string
 ): void {
   if (!src) return;
 
   layers.push(
     preview
-      ? buildPreviewImageLayer(key, layout, src)
+      ? buildPreviewImageLayer(key, layout, src, tintColor)
       : buildRenderImageElement(key, duration, track, layout, src)
   );
 }
@@ -958,7 +961,8 @@ function buildRenderTextElement(
 function buildPreviewImageLayer(
   key: string,
   layout: LayoutImageConfig,
-  src: string
+  src: string,
+  tintColor?: string
 ): PreviewLayer {
   return {
     key,
@@ -971,6 +975,7 @@ function buildPreviewImageLayer(
     yAlignment: layout.y_alignment,
     src,
     fit: layout.fit ?? "contain",
+    ...(tintColor ? { tintColor } : {}),
   };
 }
 
@@ -1449,6 +1454,10 @@ function getEffectiveStyleProfile(
       ...(parsed.textOverrides ?? {}),
       ...(scopedProfile?.textOverrides ?? {}),
     },
+    imageOverrides: {
+      ...(parsed.imageOverrides ?? {}),
+      ...(scopedProfile?.imageOverrides ?? {}),
+    },
     screenStyleOverrides: {
       ...(parsed.screenStyleOverrides ?? {}),
       ...(scopedProfile?.screenStyleOverrides ?? {}),
@@ -1613,9 +1622,14 @@ function getAccoladeImageColor(
   elementKeys: ElementKeys
 ): string {
   const palette = getRenderLayoutConfig().palette;
+  const imageOverride = getImageOverride(elementKeys.image, styleProfile.imageOverrides);
   const accentOverride =
     (elementKeys.body ? styleProfile.textOverrides?.[elementKeys.body]?.color : undefined) ||
     (elementKeys.header ? styleProfile.textOverrides?.[elementKeys.header]?.color : undefined);
+
+  if (imageOverride?.tintColor) {
+    return normalizeTintHexColor(imageOverride.tintColor);
+  }
 
   if (!accentOverride) {
     const suggested = theme.body ?? theme.header;
@@ -1627,6 +1641,13 @@ function getAccoladeImageColor(
   return normalizeTintHexColor(
     accentOverride || theme.body?.fillColor || theme.header?.fillColor || "#ffffff"
   );
+}
+
+function getImageOverride(
+  key: string | undefined,
+  overrides: ParsedBrief["imageOverrides"] | undefined
+): ImageLayerOverride | undefined {
+  return key ? overrides?.[key] : undefined;
 }
 
 function assetUrl(assetBaseUrl: string, key: string): string {

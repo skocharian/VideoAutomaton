@@ -113,6 +113,7 @@ export interface ParsedBrief {
   closingScreens: ParsedClosingScreen[];
   detectedClosingScreenKeys?: Partial<Record<ClosingScreenKind, string>>;
   textOverrides?: Record<string, TextLayerOverride>;
+  imageOverrides?: Record<string, ImageLayerOverride>;
   screenStyleOverrides?: Record<string, ScreenStyleOverride>;
   styleProfiles?: Record<string, StyleProfile>;
   screenDurations: Record<string, number>;

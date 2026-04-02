@@ -737,6 +737,8 @@
     };
     let previewMediaCache = {};
     let previewMediaPromises = {};
+    let previewImageCache = {};
+    let previewImagePromises = {};
     let previewRenderToken = 0;
     let previewDebounceHandle = null;
     let backgroundAnalysisCache = {};
@@ -1908,6 +1910,305 @@
       `;
     }
 
+    async function buildStylingSlidesPayload(slides, backgroundMedia, size) {
+      const result = [];
+      for (const slide of slides || []) {
+        result.push({
+          id: slide.id,
+          kind: slide.kind,
+          displayIndex: slide.displayIndex,
+          image: await renderSlideScreenshot(slide, backgroundMedia, size),
+          layers: (slide.layers || [])
+            .filter((layer) => layer.type === "text" || layer.type === "image")
+            .map((layer) => ({
+              key: layer.key,
+              type: layer.type,
+              text: layer.text,
+              x: layer.x,
+              y: layer.y,
+              width: layer.width,
+              height: layer.height,
+              src: layer.src,
+              fit: layer.fit,
+              tintColor: layer.tintColor,
+              fontFamily: layer.fontFamily,
+              fontSize: layer.fontSize,
+              fontWeight: layer.fontWeight,
+              fontStyle: layer.fontStyle,
+              lineHeight: layer.lineHeight,
+              letterSpacing: layer.letterSpacing,
+              textAlign: layer.textAlign,
+              color: layer.color,
+              shadowColor: layer.shadowColor,
+              shadowBlur: layer.shadowBlur,
+              shadowX: layer.shadowX,
+              shadowY: layer.shadowY,
+              strokeColor: layer.strokeColor,
+              strokeWidth: layer.strokeWidth,
+            })),
+        });
+      }
+      return result;
+    }
+
+    async function renderSlideScreenshot(slide, backgroundMedia, size) {
+      if (!slide) return "";
+
+      const baseCanvas = getPreviewCanvasSize(size);
+      const maxWidth = 360;
+      const scale = Math.min(1, maxWidth / baseCanvas.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(baseCanvas.width * scale);
+      canvas.height = Math.round(baseCanvas.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return "";
+
+      ctx.save();
+      ctx.scale(scale, scale);
+      await drawPreviewBackground(ctx, baseCanvas, backgroundMedia);
+      for (const layer of slide.layers || []) {
+        await drawPreviewLayerToCanvas(ctx, baseCanvas, layer);
+      }
+      ctx.restore();
+
+      return canvas.toDataURL("image/jpeg", 0.84);
+    }
+
+    async function drawPreviewBackground(ctx, canvas, backgroundMedia) {
+      if (!backgroundMedia?.src) {
+        ctx.fillStyle = "#0c2340";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      const image = await loadPreviewImage(backgroundMedia.src);
+      if (!image) {
+        ctx.fillStyle = "#0c2340";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      drawFittedImage(ctx, image, 0, 0, canvas.width, canvas.height, "cover");
+    }
+
+    async function drawPreviewLayerToCanvas(ctx, canvas, layer) {
+      const rect = resolveLayerRect(layer, canvas);
+      if (layer.type === "shape") {
+        ctx.save();
+        ctx.globalAlpha = toOpacity(layer.opacity);
+        ctx.fillStyle = layer.color || "transparent";
+        fillRoundedRect(ctx, rect.left, rect.top, rect.width, rect.height, parseCssRadius(layer.borderRadius, Math.min(rect.width, rect.height)));
+        ctx.restore();
+        return;
+      }
+
+      if (layer.type === "image") {
+        const image = await loadPreviewImage(layer.src);
+        if (!image) return;
+        ctx.save();
+        fillRoundedRect(ctx, rect.left, rect.top, rect.width, rect.height, 0);
+        ctx.clip();
+        drawFittedImage(ctx, image, rect.left, rect.top, rect.width, rect.height, layer.fit || "contain");
+        ctx.restore();
+        return;
+      }
+
+      if (layer.type !== "text") return;
+
+      const plainText = stripRichTextToPlainText(layer.text || "");
+      if (!plainText.trim()) return;
+
+      const fontSize = Number(layer.fontSize || 28);
+      const lineHeight = parseLineHeightValue(layer.lineHeight, fontSize);
+      const fontWeight = layer.fontWeight || 600;
+      const fontStyle = layer.fontStyle || "normal";
+      const fontFamily = layer.fontFamily || "Open Sans";
+      const textAlign = layer.textAlign || "left";
+      const lines = wrapCanvasText(ctx, plainText, rect.width, fontStyle, fontWeight, fontSize, fontFamily);
+
+      ctx.save();
+      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+      ctx.textBaseline = "top";
+      ctx.textAlign = textAlign === "center" ? "center" : "left";
+      ctx.fillStyle = layer.color || "#ffffff";
+      if (layer.shadowColor) {
+        ctx.shadowColor = layer.shadowColor;
+        ctx.shadowBlur = Number(layer.shadowBlur || 0);
+        ctx.shadowOffsetX = Number(layer.shadowX || 0);
+        ctx.shadowOffsetY = Number(layer.shadowY || 0);
+      }
+      const drawX = textAlign === "center" ? rect.left + rect.width / 2 : rect.left;
+      let drawY = rect.top;
+      for (const line of lines) {
+        if (Number.isFinite(layer.strokeWidth) && layer.strokeWidth > 0 && layer.strokeColor) {
+          ctx.lineJoin = "round";
+          ctx.lineWidth = Number(layer.strokeWidth);
+          ctx.strokeStyle = layer.strokeColor;
+          ctx.strokeText(line, drawX, drawY);
+        }
+        ctx.fillText(line, drawX, drawY);
+        drawY += lineHeight;
+        if (drawY > rect.top + rect.height) break;
+      }
+      ctx.restore();
+    }
+
+    function resolveLayerRect(layer, canvas) {
+      const width = percentToPx(layer.width, canvas.width);
+      const height = percentToPx(layer.height, canvas.height);
+      let left = percentToPx(layer.x, canvas.width);
+      let top = percentToPx(layer.y, canvas.height);
+
+      if (layer.xAlignment === "50%") left -= width / 2;
+      if (layer.xAlignment === "100%") left -= width;
+      if (layer.yAlignment === "50%") top -= height / 2;
+      if (layer.yAlignment === "100%") top -= height;
+
+      return { left, top, width, height };
+    }
+
+    function percentToPx(value, total) {
+      if (typeof value === "number") return value;
+      if (typeof value !== "string") return 0;
+      if (value.trim().endsWith("%")) {
+        return total * (Number.parseFloat(value) / 100);
+      }
+      return Number.parseFloat(value) || 0;
+    }
+
+    function parseLineHeightValue(value, fontSize) {
+      if (!value) return fontSize;
+      const trimmed = String(value).trim();
+      if (trimmed.endsWith("%")) {
+        return fontSize * (Number.parseFloat(trimmed) / 100);
+      }
+      const numeric = Number.parseFloat(trimmed);
+      return Number.isFinite(numeric) ? (numeric <= 3 ? fontSize * numeric : numeric) : fontSize;
+    }
+
+    function stripRichTextToPlainText(text) {
+      return String(text || "")
+        .replace(/<\s*strong\s*>/gi, "")
+        .replace(/<\s*\/\s*strong\s*>/gi, "")
+        .replace(/<\s*b\s*>/gi, "")
+        .replace(/<\s*\/\s*b\s*>/gi, "")
+        .replace(/\*\*/g, "");
+    }
+
+    function wrapCanvasText(ctx, text, maxWidth, fontStyle, fontWeight, fontSize, fontFamily) {
+      ctx.save();
+      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+      const paragraphs = String(text || "").split("\n");
+      const lines = [];
+      for (const paragraph of paragraphs) {
+        const words = paragraph.split(/\s+/).filter(Boolean);
+        if (!words.length) {
+          lines.push("");
+          continue;
+        }
+        let line = words[0];
+        for (let index = 1; index < words.length; index += 1) {
+          const candidate = `${line} ${words[index]}`;
+          if (ctx.measureText(candidate).width <= maxWidth) {
+            line = candidate;
+          } else {
+            lines.push(line);
+            line = words[index];
+          }
+        }
+        lines.push(line);
+      }
+      ctx.restore();
+      return lines;
+    }
+
+    function toOpacity(value) {
+      if (!value) return 1;
+      if (String(value).trim().endsWith("%")) {
+        return Math.max(0, Math.min(1, Number.parseFloat(value) / 100));
+      }
+      const numeric = Number.parseFloat(value);
+      return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 1;
+    }
+
+    function parseCssRadius(value, base) {
+      if (!value) return 0;
+      const trimmed = String(value).trim();
+      if (trimmed.endsWith("%")) {
+        return (Number.parseFloat(trimmed) / 100) * base;
+      }
+      return Number.parseFloat(trimmed) || 0;
+    }
+
+    function fillRoundedRect(ctx, x, y, width, height, radius) {
+      const r = Math.max(0, Math.min(radius || 0, width / 2, height / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawFittedImage(ctx, image, x, y, width, height, fit = "contain") {
+      const imageRatio = image.width / image.height;
+      const boxRatio = width / height;
+      let drawWidth = width;
+      let drawHeight = height;
+      let drawX = x;
+      let drawY = y;
+
+      if (fit === "cover") {
+        if (imageRatio > boxRatio) {
+          drawHeight = height;
+          drawWidth = height * imageRatio;
+          drawX = x - (drawWidth - width) / 2;
+        } else {
+          drawWidth = width;
+          drawHeight = width / imageRatio;
+          drawY = y - (drawHeight - height) / 2;
+        }
+      } else {
+        if (imageRatio > boxRatio) {
+          drawWidth = width;
+          drawHeight = width / imageRatio;
+          drawY = y + (height - drawHeight) / 2;
+        } else {
+          drawHeight = height;
+          drawWidth = height * imageRatio;
+          drawX = x + (width - drawWidth) / 2;
+        }
+      }
+
+      ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+    }
+
+    function loadPreviewImage(src) {
+      if (!src) return Promise.resolve(null);
+      if (previewImageCache[src]) {
+        return Promise.resolve(previewImageCache[src]);
+      }
+      if (!previewImagePromises[src]) {
+        previewImagePromises[src] = new Promise((resolve) => {
+          const image = new Image();
+          image.crossOrigin = "anonymous";
+          image.onload = () => {
+            previewImageCache[src] = image;
+            delete previewImagePromises[src];
+            resolve(image);
+          };
+          image.onerror = () => {
+            delete previewImagePromises[src];
+            resolve(null);
+          };
+          image.src = src;
+        });
+      }
+      return previewImagePromises[src];
+    }
+
     function replaceTextLayer(slide, layerKey, value) {
       const layer = slide.layers.find((item) => item.key === layerKey);
       if (layer) {
@@ -2072,6 +2373,12 @@
           throw new Error("No preview background image available");
         }
 
+        const stylingSlides = await buildStylingSlidesPayload(
+          previewModelData.slides,
+          backgroundMedia,
+          previewState.size
+        );
+
         const response = await fetch(`${API_BASE}/suggestStyling`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2081,36 +2388,7 @@
             backgroundImage: backgroundMedia.src,
             size: previewState.size,
             safeZone: renderConfig?.sizes?.[previewState.size]?.safeZone || null,
-            slides: previewModelData.slides.map((slide) => ({
-              id: slide.id,
-              kind: slide.kind,
-              displayIndex: slide.displayIndex,
-              layers: (slide.layers || [])
-                .filter((layer) => layer.type === "text")
-                .map((layer) => ({
-                  key: layer.key,
-                  type: layer.type,
-                  text: layer.text,
-                  x: layer.x,
-                  y: layer.y,
-                  width: layer.width,
-                  height: layer.height,
-                  fontFamily: layer.fontFamily,
-                  fontSize: layer.fontSize,
-                  fontWeight: layer.fontWeight,
-                  fontStyle: layer.fontStyle,
-                  lineHeight: layer.lineHeight,
-                  letterSpacing: layer.letterSpacing,
-                  textAlign: layer.textAlign,
-                  color: layer.color,
-                  shadowColor: layer.shadowColor,
-                  shadowBlur: layer.shadowBlur,
-                  shadowX: layer.shadowX,
-                  shadowY: layer.shadowY,
-                  strokeColor: layer.strokeColor,
-                  strokeWidth: layer.strokeWidth,
-                })),
-            })),
+            slides: stylingSlides,
           }),
         });
 
@@ -2143,6 +2421,7 @@
       parsedData.styleProfiles = parsedData.styleProfiles || {};
       const profile = parsedData.styleProfiles[profileKey] || {};
       profile.textOverrides = { ...(profile.textOverrides || {}) };
+      profile.imageOverrides = { ...(profile.imageOverrides || {}) };
       profile.screenStyleOverrides = { ...(profile.screenStyleOverrides || {}) };
       let changedLayers = 0;
       let changedColors = 0;
@@ -2150,9 +2429,28 @@
       let changedFontSizes = 0;
       let changedScrims = 0;
       let changedTypography = 0;
+      let changedImageTints = 0;
 
       for (const recommendation of suggestion.recommendations || []) {
         for (const layer of recommendation.layers || []) {
+          if (layer.tintColor && !layer.fontSize && !layer.color && !layer.x && !layer.y &&
+            !layer.fontFamily && typeof layer.fontWeight === "undefined" && !layer.fontStyle &&
+            !layer.lineHeight && !layer.textAlign && !layer.letterSpacing &&
+            !layer.shadowColor && !Number.isFinite(layer.shadowBlur) &&
+            !Number.isFinite(layer.shadowX) && !Number.isFinite(layer.shadowY) &&
+            !layer.strokeColor && !Number.isFinite(layer.strokeWidth)
+          ) {
+            const previousTint = profile.imageOverrides[layer.key]?.tintColor;
+            if (previousTint !== layer.tintColor) {
+              changedImageTints += 1;
+            }
+            profile.imageOverrides[layer.key] = {
+              ...(profile.imageOverrides[layer.key] || {}),
+              tintColor: layer.tintColor,
+            };
+            continue;
+          }
+
           const previous = profile.textOverrides[layer.key] || {};
           const next = {
             ...(profile.textOverrides[layer.key] || {}),
@@ -2249,19 +2547,23 @@
         changedFontSizes,
         changedScrims,
         changedTypography,
+        changedImageTints,
       };
     }
 
     function summarizeSuggestionResult(suggestion, stats) {
       const count = (suggestion.recommendations || []).length;
       if (!count) return "No style changes suggested.";
-      if (!stats || !stats.changedLayers && !stats.changedScrims) {
+      if (!stats || (!stats.changedLayers && !stats.changedScrims && !stats.changedImageTints)) {
         return "AI reviewed the slides but did not find a strong styling change to apply.";
       }
 
       const parts = [];
       if (stats.changedColors) {
         parts.push(`${stats.changedColors} color`);
+      }
+      if (stats.changedImageTints) {
+        parts.push(`${stats.changedImageTints} image tint`);
       }
       if (stats.changedFontSizes) {
         parts.push(`${stats.changedFontSizes} size`);

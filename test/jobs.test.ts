@@ -676,6 +676,34 @@ describe("buildRenderScriptDocument", () => {
     ).toBe("Maggie S.");
   });
 
+  it("applies scoped image tint overrides to the accolade asset", () => {
+    const parsed = makeParsed({
+      styleProfiles: {
+        "9:16|bg/PinkTrees.mp4|1.000": {
+          imageOverrides: {
+            Closing_Accolade_Image: {
+              tintColor: "#f2c94c",
+            },
+          },
+        },
+      },
+    });
+
+    const document = buildRenderScriptDocument({
+      parsed,
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const accoladeComposition = getComposition(document, "Screen_5");
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
+      "/assets/tinted/accolades/must-have-app.png?color=%23f2c94c"
+    );
+  });
+
   it("starts audio from a configured offset while trimming it to the render duration", () => {
     const document = buildRenderScriptDocument({
       parsed: makeParsed({

@@ -19,6 +19,7 @@ export type StylingSuggestionRequest = {
     id: string;
     kind: string;
     displayIndex: number;
+    image?: string;
     layers: Array<{
       key: string;
       type: string;
@@ -27,6 +28,8 @@ export type StylingSuggestionRequest = {
       y?: string;
       width?: string;
       height?: string;
+      src?: string;
+      fit?: "contain" | "cover" | "fill";
       fontFamily?: string;
       fontSize?: number;
       fontWeight?: number | string;
@@ -41,6 +44,7 @@ export type StylingSuggestionRequest = {
       shadowY?: number;
       strokeColor?: string;
       strokeWidth?: number;
+      tintColor?: string;
     }>;
   }>;
 };
@@ -63,6 +67,7 @@ type StylingRecommendationLayer = {
   shadowY?: number;
   strokeColor?: string;
   strokeWidth?: number;
+  tintColor?: string;
 };
 
 export type StylingSuggestionResponse = {
@@ -123,6 +128,7 @@ const stylingSchema = {
                 shadowY: { type: "number" },
                 strokeColor: { type: "string" },
                 strokeWidth: { type: "number" },
+                tintColor: { type: "string" },
               },
               required: ["key"],
             },
@@ -224,72 +230,13 @@ function buildRequestBody(
           {
             type: "input_text",
             text:
-              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. You may change text color, font family, font weight, font style, line height, shadow, glow-like shadow blur, stroke, and position. You may use any tasteful 6-digit hex text color if it improves contrast with the background. Prefer elegant, high-contrast colors over washed-out or low-contrast ones. You may use common serif or sans-serif fonts such as Georgia, Times New Roman, Baskerville, Garamond, Palatino, Open Sans, Arial, Helvetica, serif, and sans-serif. Do not invent new layer keys. Prefer minimal layout changes when the current composition is already strong, but do change typography treatment when readability or polish would improve. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
+              "You are a direct response ad designer. Return only valid JSON. Optimize for readable, premium-looking ad styling. Keep all key text inside the provided safe zone. You may change text color, font family, font weight, font style, line height, shadow, glow-like shadow blur, stroke, and position. You may use any tasteful 6-digit hex text color if it improves contrast with the background. You may also set tintColor for image layers when a mark like an accolade logo should adapt to the background. Prefer elegant, high-contrast colors over washed-out or low-contrast ones. You may use common serif or sans-serif fonts such as Georgia, Times New Roman, Baskerville, Garamond, Palatino, Open Sans, Arial, Helvetica, serif, and sans-serif. Do not invent new layer keys. Prefer minimal layout changes when the current composition is already strong, but do change typography treatment when readability or polish would improve. Disable the scrim when it is visually unnecessary. Keep closing screens branded and restrained.",
           },
         ],
       },
       {
         role: "user",
-        content: [
-          {
-            type: "input_text",
-            text:
-              "Recommend styling overrides for these ad slides.\n" +
-              "Primary goal: choose typography that reads clearly against the actual background and feels premium.\n" +
-              "You are allowed to keep white, but only when it is clearly the best choice. Otherwise choose a better contrasting hex color.\n" +
-              "You may change font family and add stronger shadow, stroke, or glow-like blur when that improves readability.\n" +
-              "Avoid muddy grays or colors too close to the background.\n" +
-              "Return JSON matching this shape exactly: " +
-              JSON.stringify(
-                {
-                  recommendations: [
-                    {
-                      slideId: "string",
-                      confidence: 0.0,
-                      reason: "string",
-                      scrim: { enabled: true },
-                      layers: [
-                        {
-                          key: "string",
-                          fontSize: 42,
-                          fontFamily: "Georgia",
-                          fontWeight: 700,
-                          fontStyle: "normal",
-                          color: "#ffffff",
-                          lineHeight: "108%",
-                          textAlign: "center",
-                          shadowColor: "rgba(0,0,0,0.9)",
-                          shadowBlur: 18,
-                          shadowY: 3,
-                          strokeColor: "#1a1a1a",
-                          strokeWidth: 1.5,
-                          x: "8%",
-                          y: "16%",
-                        },
-                      ],
-                    },
-                  ],
-                }
-              ) +
-              "\nInput:\n" +
-              JSON.stringify(
-                {
-                  size: payload.size,
-                  backgroundKey: payload.backgroundKey,
-                  backgroundSpeed: payload.backgroundSpeed,
-                  safeZone: payload.safeZone,
-                  slides: payload.slides,
-                },
-                null,
-                2
-              ),
-          },
-          {
-            type: "input_image",
-            image_url: payload.backgroundImage,
-            detail: "high",
-          },
-        ],
+        content: buildUserContent(payload),
       },
     ],
     text: {
@@ -436,6 +383,9 @@ function sanitizeLayerOverride(layer: StylingRecommendationLayer): StylingRecomm
   if (Number.isFinite(layer.strokeWidth)) {
     sanitized.strokeWidth = clampNumber(Number(layer.strokeWidth), 0, 8);
   }
+  if (isHexColor(layer.tintColor)) {
+    sanitized.tintColor = normalizeHex(layer.tintColor);
+  }
 
   return sanitized;
 }
@@ -556,4 +506,87 @@ export function mergeTextOverrides(
     };
   }
   return merged;
+}
+
+function buildUserContent(
+  payload: StylingSuggestionRequest
+): ResponsesApiPayload["input"][number]["content"] {
+  const content: ResponsesApiPayload["input"][number]["content"] = [
+    {
+      type: "input_text",
+      text:
+        "Recommend styling overrides for these ad slides.\n" +
+        "Primary goal: choose typography and mark treatment that reads clearly against the actual background and feels premium.\n" +
+        "You are allowed to keep white, but only when it is clearly the best choice. Otherwise choose a better contrasting hex color.\n" +
+        "You may change font family and add stronger shadow, stroke, or glow-like blur when that improves readability.\n" +
+        "For image layers such as accolade marks, you may return tintColor to adapt the mark to the background.\n" +
+        "Avoid muddy grays or colors too close to the background.\n" +
+        "Return JSON matching this shape exactly: " +
+        JSON.stringify({
+          recommendations: [
+            {
+              slideId: "string",
+              confidence: 0.0,
+              reason: "string",
+              scrim: { enabled: true },
+              layers: [
+                {
+                  key: "string",
+                  fontSize: 42,
+                  fontFamily: "Georgia",
+                  fontWeight: 700,
+                  fontStyle: "normal",
+                  color: "#ffffff",
+                  lineHeight: "108%",
+                  textAlign: "center",
+                  shadowColor: "rgba(0,0,0,0.9)",
+                  shadowBlur: 18,
+                  shadowY: 3,
+                  strokeColor: "#1a1a1a",
+                  strokeWidth: 1.5,
+                  tintColor: "#f6d75e",
+                  x: "8%",
+                  y: "16%",
+                },
+              ],
+            },
+          ],
+        }) +
+        "\nInput:\n" +
+        JSON.stringify(
+          {
+            size: payload.size,
+            backgroundKey: payload.backgroundKey,
+            backgroundSpeed: payload.backgroundSpeed,
+            safeZone: payload.safeZone,
+            slides: payload.slides.map((slide) => ({
+              ...slide,
+              image: slide.image ? "[attached separately]" : undefined,
+            })),
+          },
+          null,
+          2
+        ),
+    },
+    {
+      type: "input_image",
+      image_url: payload.backgroundImage,
+      detail: "high",
+    },
+  ];
+
+  for (const slide of payload.slides) {
+    if (!slide.image) continue;
+    content.push({
+      type: "input_text",
+      text: `Rendered preview screenshot for slide ${slide.displayIndex} (${slide.kind}, id=${slide.id}).`,
+    });
+    content.push({
+      type: "input_image",
+      image_url: slide.image,
+      detail: "high",
+    });
+  }
+
+  return content;
 }
