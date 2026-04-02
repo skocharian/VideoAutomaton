@@ -104,6 +104,7 @@ function makeParsed(overrides: Partial<ParsedBrief> = {}): ParsedBrief {
     backgrounds: ["bg/PinkTrees.mp4"],
     sizes: ["9:16", "4:5"],
     audio: "audio/track.mp3",
+    audioStartSeconds: 0,
     accolade: "accolades/must-have-app.png",
     badge: "badges/ios.png",
     logo: "logos/breethe.png",
@@ -298,6 +299,10 @@ describe("buildRenderScriptDocument", () => {
     expect(document.elements.some((element) => element.name === "Background")).toBe(true);
     expect(document.elements.some((element) => element.name === "NoveltyClip")).toBe(true);
     expect(document.elements.some((element) => element.name === "Music")).toBe(true);
+    expect(document.elements.find((element) => element.name === "Music")).toMatchObject({
+      trim_start: 0,
+      trim_duration: 23.5,
+    });
 
     const compositions = document.elements.filter(
       (element) => element.type === "composition"
@@ -454,6 +459,7 @@ describe("buildRenderScriptDocument", () => {
       closingScreens: [],
       novelty: [],
       audio: "",
+      audioStartSeconds: 0,
     });
 
     const preview = buildPreviewModel({
@@ -491,6 +497,24 @@ describe("buildRenderScriptDocument", () => {
     const accoladeComposition = getComposition(document, "Screen_5");
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")).toBeDefined();
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Header")).toBeUndefined();
+  });
+
+  it("starts audio from a configured offset while trimming it to the render duration", () => {
+    const document = buildRenderScriptDocument({
+      parsed: makeParsed({
+        audioStartSeconds: 600,
+      }),
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    expect(document.elements.find((element) => element.name === "Music")).toMatchObject({
+      trim_start: 600,
+      trim_duration: 23.5,
+    });
   });
 });
 

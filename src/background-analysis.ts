@@ -43,7 +43,7 @@ const THEME_STYLE_DETAILS: Record<ThemeStyleId, ThemeSuggestion> = {
     shadowBlur: 18,
     shadowY: 4,
     scrimColor: "#071a38",
-    scrimOpacity: 0.24,
+    scrimOpacity: 0.1,
   },
   navy: {
     styleId: "navy",
@@ -59,7 +59,7 @@ const THEME_STYLE_DETAILS: Record<ThemeStyleId, ThemeSuggestion> = {
     shadowBlur: 4,
     shadowY: 1,
     scrimColor: "#ffffff",
-    scrimOpacity: 0.16,
+    scrimOpacity: 0.08,
   },
 };
 

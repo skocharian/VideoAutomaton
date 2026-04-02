@@ -18,7 +18,17 @@ const DEFAULT_SLIDE_DURATION = 3;
  * Number of screens is dynamic — determined by what's in the brief.
  */
 export function parseBrief(req: ParseBriefRequest): ParsedBrief {
-  const { brief, backgrounds, sizes, audio, accolade, badge, logo, novelty } = req;
+  const {
+    brief,
+    backgrounds,
+    sizes,
+    audio,
+    audioStartSeconds,
+    accolade,
+    badge,
+    logo,
+    novelty,
+  } = req;
   const normalizedBrief = normalizeStructuralHeadings(brief);
 
   const campaignId = extractCampaignId(brief);
@@ -48,11 +58,19 @@ export function parseBrief(req: ParseBriefRequest): ParsedBrief {
     backgrounds,
     sizes: sizes.length > 0 ? sizes : ["9:16", "4:5"],
     audio: audio ?? "",
+    audioStartSeconds: normalizeAudioStartSeconds(audioStartSeconds),
     accolade: accolade ?? "",
     badge: badge ?? "",
     logo: logo ?? "",
     ...(novelty && novelty.length > 0 ? { novelty } : {}),
   };
+}
+
+function normalizeAudioStartSeconds(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Number(value));
 }
 
 function extractCampaignId(brief: string): string {

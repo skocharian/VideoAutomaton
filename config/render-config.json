@@ -88,7 +88,7 @@
             "x_alignment": "0%",
             "y_alignment": "0%",
             "font_family": "Open Sans",
-            "font_size": 46,
+            "font_size": 49,
             "font_weight": 700,
             "line_height": "104%",
             "text_align": "left"
@@ -104,7 +104,7 @@
             "x_alignment": "0%",
             "y_alignment": "0%",
             "font_family": "Open Sans",
-            "font_size": 37,
+            "font_size": 39,
             "font_weight": 600,
             "line_height": "104%",
             "text_align": "left"
@@ -318,7 +318,7 @@
             "x_alignment": "0%",
             "y_alignment": "0%",
             "font_family": "Open Sans",
-            "font_size": 43,
+            "font_size": 45,
             "font_weight": 700,
             "line_height": "104%",
             "text_align": "left"
@@ -334,7 +334,7 @@
             "x_alignment": "0%",
             "y_alignment": "0%",
             "font_family": "Open Sans",
-            "font_size": 35,
+            "font_size": 37,
             "font_weight": 600,
             "line_height": "104%",
             "text_align": "left"

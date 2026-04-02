@@ -154,6 +154,9 @@ export function buildRenderScriptDocument(
   });
 
   if (parsed.audio) {
+    const audioStartSeconds = Number.isFinite(parsed.audioStartSeconds)
+      ? Math.max(0, Number(parsed.audioStartSeconds))
+      : 0;
     elements.push({
       name: "Music",
       type: "audio",
@@ -161,6 +164,8 @@ export function buildRenderScriptDocument(
       time: 0,
       duration: totalDuration,
       source: assetUrl(assetBaseUrl, parsed.audio),
+      trim_start: audioStartSeconds,
+      trim_duration: totalDuration,
     });
   }
 

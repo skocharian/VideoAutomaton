@@ -7,6 +7,7 @@ describe("parseBrief", () => {
     backgrounds: ["bg/PinkTrees.mp4"],
     sizes: ["9:16", "4:5"],
     audio: "audio/breethe.mp3",
+    audioStartSeconds: 0,
     accolade: "accolades/must-have-app.png",
     badge: "badges/ios.png",
     logo: "logos/breethe.png",
@@ -539,9 +540,19 @@ Screen 6: Final
     const result = parseBrief({ ...baseBriefReq, brief: "AX0320" });
     expect(result.backgrounds).toEqual(["bg/PinkTrees.mp4"]);
     expect(result.audio).toBe("audio/breethe.mp3");
+    expect(result.audioStartSeconds).toBe(0);
     expect(result.accolade).toBe("accolades/must-have-app.png");
     expect(result.badge).toBe("badges/ios.png");
     expect(result.logo).toBe("logos/breethe.png");
+  });
+
+  it("normalizes audio start seconds from the request", () => {
+    const result = parseBrief({
+      ...baseBriefReq,
+      brief: "AX0320",
+      audioStartSeconds: 600,
+    });
+    expect(result.audioStartSeconds).toBe(600);
   });
 
   it("includes novelty when provided", () => {
@@ -578,6 +589,7 @@ describe("computeTotalDuration", () => {
       backgrounds: ["bg1.mp4"],
       sizes: ["9:16"],
       audio: "",
+      audioStartSeconds: 0,
       accolade: "",
       badge: "",
       logo: "",
@@ -602,6 +614,7 @@ describe("computeVideoCount", () => {
       backgrounds: ["bg1.mp4", "bg2.mp4", "bg3.mp4"],
       sizes: ["9:16", "4:5"],
       audio: "",
+      audioStartSeconds: 0,
       accolade: "",
       badge: "",
       logo: "",
@@ -620,6 +633,7 @@ describe("computeVideoCount", () => {
       backgrounds: [],
       sizes: ["9:16"],
       audio: "",
+      audioStartSeconds: 0,
       accolade: "",
       badge: "",
       logo: "",

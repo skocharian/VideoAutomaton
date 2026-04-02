@@ -86,6 +86,7 @@ export interface ParsedBrief {
   backgroundAnalysis?: Record<string, BackgroundAnalysisRef>;
   sizes: RenderSize[];
   audio: string;
+  audioStartSeconds: number;
   accolade: string;
   badge: string;
   logo: string;
@@ -97,6 +98,7 @@ export interface ParseBriefRequest {
   backgrounds: string[];
   sizes: RenderSize[];
   audio: string;
+  audioStartSeconds?: number;
   accolade: string;
   badge: string;
   logo: string;
