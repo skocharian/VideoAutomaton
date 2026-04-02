@@ -2711,11 +2711,20 @@
       document.getElementById("step-status").scrollIntoView({ behavior: "smooth" });
     }
 
-    function startRenderProgress(title, detail = "", buttonLabel = "Submitting...") {
+    function startRenderProgress(
+      title,
+      detail = "",
+      buttonLabel = "Submitting...",
+      options = {}
+    ) {
+      const preserveElapsed = options.preserveElapsed !== false;
       renderProgressState = {
         title,
         detail,
-        startedAt: Date.now(),
+        startedAt:
+          preserveElapsed && renderProgressState?.startedAt
+            ? renderProgressState.startedAt
+            : Date.now(),
       };
 
       if (renderProgressHandle) {
@@ -2851,7 +2860,8 @@
         startRenderProgress(
           `Preparing ${targets.length} speed-adjusted background${targets.length === 1 ? "" : "s"}...`,
           `Ready ${summary.ready}/${states.length || targets.length} · Processing ${summary.processing} · Queued ${summary.pending}. ${describeSpeedPreparationTargets(targets)}`,
-          "Preparing background..."
+          "Preparing background...",
+          { preserveElapsed: true }
         );
 
         if (Date.now() > deadline) {
@@ -2860,7 +2870,7 @@
           );
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
       }
     }
 
