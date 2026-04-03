@@ -1,8 +1,11 @@
 import http from "node:http";
 import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { analyzeBackgroundFile } from "../scripts/background-analysis-lib.mjs";
 
 const port = Number(process.env.PORT || 8080);
@@ -37,8 +40,7 @@ const server = http.createServer(async (req, res) => {
           });
         }
 
-        const bytes = new Uint8Array(await assetResponse.arrayBuffer());
-        await fs.writeFile(tempFile, bytes);
+        await writeResponseBodyToFile(assetResponse, tempFile);
 
         const artifact = await analyzeBackgroundFile({
           input: tempFile,
@@ -177,11 +179,10 @@ async function runSpeedJob(body) {
       status: assetResponse.status,
     });
 
-    const bytes = new Uint8Array(await assetResponse.arrayBuffer());
-    await fs.writeFile(sourceFile, bytes);
+    const writtenBytes = await writeResponseBodyToFile(assetResponse, sourceFile);
     console.log("speed:job:source-written", {
       assetKey: body.assetKey,
-      bytes: bytes.byteLength,
+      bytes: writtenBytes,
     });
     await transformBackgroundSpeed(sourceFile, outputFile, Number(body.speed));
     console.log("speed:job:transform-complete", {
@@ -263,8 +264,10 @@ async function transformBackgroundSpeed(input, output, speed) {
     `setpts=${setpts}*PTS`,
     "-c:v",
     "libx264",
+    "-threads",
+    "1",
     "-preset",
-    "veryfast",
+    "ultrafast",
     "-pix_fmt",
     "yuv420p",
     "-movflags",
@@ -344,6 +347,22 @@ function summarizeStderr(stderr) {
     .trim()
     .replace(/\s+/g, " ")
     .slice(0, 1200);
+}
+
+async function writeResponseBodyToFile(response, destinationPath) {
+  if (!response.body) {
+    throw new Error("Response body is empty");
+  }
+
+  const readable =
+    typeof response.body.getReader === "function"
+      ? Readable.fromWeb(response.body)
+      : Readable.from(response.body);
+  const fileStream = createWriteStream(destinationPath);
+
+  await pipeline(readable, fileStream);
+  const stats = await fs.stat(destinationPath);
+  return stats.size;
 }
 
 async function postSpeedStatus(body, status, error) {
