@@ -1122,15 +1122,16 @@ function buildContentFlowLayouts(
     safeZone
   );
 
-  const scrimTop = parsePercent(screenLayout.scrim.y);
-  const safeTop = safeZone?.top ?? 0;
-  const safeBottom = safeZone ? 100 - safeZone.bottom : 100;
-  const mainTop = Math.max(scrimTop + 2.1, safeTop + 0.8);
+  const safeTop = safeZone?.top ?? 8;
+  const safeBottom = safeZone ? 100 - safeZone.bottom : 92;
+  const mainTop = safeTop + 0.8;
   const gapPct = pixelsToPercent(Math.max(12, canvas.height * 0.012), canvas.height);
   const disclaimerReserve = stripRichTextMarkup(disclaimerText).trim()
     ? parsePercent(disclaimer.height) + gapPct + 0.8
     : 0;
   const mainBottom = Math.max(mainTop + 8, safeBottom - disclaimerReserve);
+  const shouldCenterContentGroup =
+    !hasYOverride(headerOverride) && !hasYOverride(bodyOverride);
 
   let fittedHeader: LayoutTextConfig | undefined;
   let fittedBody: LayoutTextConfig | undefined;
@@ -1184,6 +1185,18 @@ function buildContentFlowLayouts(
     );
   }
 
+  if (shouldCenterContentGroup && (fittedHeader || fittedBody)) {
+    const centeredLayouts = centerContentTextGroup(
+      fittedHeader,
+      fittedBody,
+      mainTop,
+      mainBottom,
+      gapPct
+    );
+    fittedHeader = centeredLayouts.header;
+    fittedBody = centeredLayouts.body;
+  }
+
   const fittedDisclaimer = stripRichTextMarkup(disclaimerText).trim()
     ? (() => {
         const disclaimerLayout = fitTextToBox(disclaimer, disclaimerText, canvas, {
@@ -1212,6 +1225,51 @@ function buildContentFlowLayouts(
     header: fittedHeader ? applyTextSafeZone(fittedHeader, safeZone) : undefined,
     body: fittedBody ? applyTextSafeZone(fittedBody, safeZone) : undefined,
     disclaimer: fittedDisclaimer,
+  };
+}
+
+function centerContentTextGroup(
+  header: LayoutTextConfig | undefined,
+  body: LayoutTextConfig | undefined,
+  mainTop: number,
+  mainBottom: number,
+  gapPct: number
+): {
+  header?: LayoutTextConfig;
+  body?: LayoutTextConfig;
+} {
+  const headerHeight = header ? parsePercent(header.height) : 0;
+  const bodyHeight = body ? parsePercent(body.height) : 0;
+  const groupGap = header && body ? gapPct : 0;
+  const groupHeight = headerHeight + groupGap + bodyHeight;
+  const availableHeight = Math.max(0, mainBottom - mainTop);
+  const groupTop =
+    groupHeight >= availableHeight
+      ? mainTop
+      : clamp((mainTop + mainBottom - groupHeight) / 2, mainTop, mainBottom - groupHeight);
+
+  let cursor = groupTop;
+  let nextHeader: LayoutTextConfig | undefined;
+  let nextBody: LayoutTextConfig | undefined;
+
+  if (header) {
+    nextHeader = {
+      ...header,
+      y: formatPercent(cursor),
+    };
+    cursor += headerHeight + groupGap;
+  }
+
+  if (body) {
+    nextBody = {
+      ...body,
+      y: formatPercent(cursor),
+    };
+  }
+
+  return {
+    header: nextHeader,
+    body: nextBody,
   };
 }
 

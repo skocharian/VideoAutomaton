@@ -511,6 +511,7 @@ describe("buildRenderScriptDocument", () => {
 
     const openingSlide = preview.slides.find((slide) => slide.kind === "variant");
     const openingHeader = openingSlide?.layers.find((layer) => layer.key === "S1_Header");
+    const openingBody = openingSlide?.layers.find((layer) => layer.key === "S1_Body");
     const disclaimerSlide = preview.slides.find((slide) => slide.sourceKey === "8");
     const disclaimer = disclaimerSlide?.layers.find((layer) => layer.key === "S8_Disclaimer");
     const endcardSlide = preview.slides.find((slide) => slide.kind === "endcard");
@@ -533,6 +534,9 @@ describe("buildRenderScriptDocument", () => {
     expect(openingHeaderBounds.left).toBeGreaterThanOrEqual(safeZone.left);
     expect(openingHeaderBounds.top).toBeGreaterThanOrEqual(safeZone.top);
     expect(openingHeaderBounds.right).toBeLessThanOrEqual(safeZone.right);
+    expect(openingHeader?.textAlign).toBe("center");
+    expect(openingBody?.textAlign).toBe("center");
+    expect(parsePercent(openingHeader?.x)).toBeCloseTo(50, 1);
 
     const disclaimerBounds = getPercentBounds(disclaimer);
     expect(disclaimerBounds.bottom).toBeLessThanOrEqual(safeZone.bottom);
@@ -546,7 +550,7 @@ describe("buildRenderScriptDocument", () => {
     ).toBe(true);
   });
 
-  it("flows long content copy so body starts below the fitted header and body-only screens move up", () => {
+  it("flows long content copy into a centered safe-area stack", () => {
     const parsed = makeParsed({
       contentScreens: [
         {
@@ -594,7 +598,11 @@ describe("buildRenderScriptDocument", () => {
 
     const bodyOnly = preview.slides.find((slide) => slide.sourceKey === "2");
     const bodyOnlyBody = bodyOnly?.layers.find((layer) => layer.key === "S2_Body");
-    expect(parsePercent(bodyOnlyBody?.y)).toBeLessThan(16);
+    const bodyOnlyBounds = getPercentBounds(bodyOnlyBody);
+    const bodyOnlyCenter = bodyOnlyBounds.top + (bodyOnlyBounds.bottom - bodyOnlyBounds.top) / 2;
+    expect(bodyOnlyBody?.textAlign).toBe("center");
+    expect(bodyOnlyCenter).toBeGreaterThan(34);
+    expect(bodyOnlyCenter).toBeLessThan(45);
 
     const longCopy = preview.slides.find((slide) => slide.sourceKey === "6");
     const longHeader = longCopy?.layers.find((layer) => layer.key === "S6_Header");
