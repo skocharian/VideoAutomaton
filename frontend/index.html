@@ -410,10 +410,24 @@
     .preview-safe-zone {
       position: absolute;
       pointer-events: none;
-      border: 1px dashed rgba(255, 255, 255, 0.72);
-      box-shadow: inset 0 0 0 1px rgba(7, 26, 56, 0.18);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.04);
+      inset: 0;
+    }
+
+    .preview-safe-zone svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .preview-safe-zone-fill {
+      fill: rgba(255, 255, 255, 0.04);
+    }
+
+    .preview-safe-zone-stroke {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.72);
+      stroke-width: 1.25;
+      stroke-dasharray: 5 4;
     }
 
     .preview-duration {
@@ -1938,22 +1952,54 @@
     }
 
     function renderPreviewSafeZone(safeZone) {
+      const shapePath = buildSafeZonePath(safeZone);
+
+      return `
+        <div class="preview-safe-zone" aria-hidden="true">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+            <path class="preview-safe-zone-fill" d="${escapeHtml(shapePath)}"></path>
+            <path class="preview-safe-zone-stroke" d="${escapeHtml(shapePath)}"></path>
+          </svg>
+        </div>
+      `;
+    }
+
+    function buildSafeZonePath(safeZone) {
       const left = Number.isFinite(safeZone?.left) ? safeZone.left : 0;
       const top = Number.isFinite(safeZone?.top) ? safeZone.top : 0;
       const right = Number.isFinite(safeZone?.right) ? safeZone.right : 0;
       const bottom = Number.isFinite(safeZone?.bottom) ? safeZone.bottom : 0;
+      const outerRight = 100 - right;
+      const outerBottom = 100 - bottom;
+      const cutouts = Array.isArray(safeZone?.cutouts) ? safeZone.cutouts : [];
 
-      return `
-        <div
-          class="preview-safe-zone"
-          style="
-            left:${escapeHtml(String(left))}%;
-            top:${escapeHtml(String(top))}%;
-            width:${escapeHtml(String(100 - left - right))}%;
-            height:${escapeHtml(String(100 - top - bottom))}%;
-          "
-        ></div>
-      `;
+      if (!cutouts.length) {
+        return `M ${left} ${top} H ${outerRight} V ${outerBottom} H ${left} Z`;
+      }
+
+      const lowerRightCutout = cutouts.find(
+        (cutout) =>
+          Number.isFinite(cutout?.left) &&
+          Number.isFinite(cutout?.top) &&
+          Number.isFinite(cutout?.width) &&
+          Number.isFinite(cutout?.height) &&
+          Math.abs((cutout.left + cutout.width) - outerRight) < 0.01 &&
+          Math.abs((cutout.top + cutout.height) - outerBottom) < 0.01
+      );
+
+      if (lowerRightCutout) {
+        return [
+          `M ${left} ${top}`,
+          `H ${outerRight}`,
+          `V ${lowerRightCutout.top}`,
+          `H ${lowerRightCutout.left}`,
+          `V ${outerBottom}`,
+          `H ${left}`,
+          "Z",
+        ].join(" ");
+      }
+
+      return `M ${left} ${top} H ${outerRight} V ${outerBottom} H ${left} Z`;
     }
 
     async function buildStylingSlidesPayload(slides, backgroundMedia, size) {

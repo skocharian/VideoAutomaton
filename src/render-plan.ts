@@ -1410,7 +1410,116 @@ function getSafeZoneBox(
     maxBottom - height
   );
 
-  return { left, top, width, height };
+  return avoidSafeZoneCutouts(
+    {
+      left,
+      top,
+      width,
+      height,
+    },
+    safeZone,
+    {
+      minLeft,
+      minTop,
+      maxRight,
+      maxBottom,
+    }
+  );
+}
+
+function avoidSafeZoneCutouts(
+  bounds: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  },
+  safeZone: LayoutSafeZoneConfig,
+  outerBounds: {
+    minLeft: number;
+    minTop: number;
+    maxRight: number;
+    maxBottom: number;
+  }
+): {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+} {
+  if (!safeZone.cutouts?.length) {
+    return bounds;
+  }
+
+  let nextBounds = { ...bounds };
+  for (const cutout of safeZone.cutouts) {
+    if (!intersectsCutout(nextBounds, cutout)) {
+      continue;
+    }
+
+    const moveUpTop = cutout.top - nextBounds.height;
+    const moveLeftLeft = cutout.left - nextBounds.width;
+
+    const canMoveUp = moveUpTop >= outerBounds.minTop;
+    const canMoveLeft = moveLeftLeft >= outerBounds.minLeft;
+
+    if (!canMoveUp && !canMoveLeft) {
+      continue;
+    }
+
+    if (canMoveUp && canMoveLeft) {
+      const moveUpDistance = Math.abs(nextBounds.top - moveUpTop);
+      const moveLeftDistance = Math.abs(nextBounds.left - moveLeftLeft);
+      if (moveUpDistance <= moveLeftDistance) {
+        nextBounds.top = clamp(
+          moveUpTop,
+          outerBounds.minTop,
+          outerBounds.maxBottom - nextBounds.height
+        );
+      } else {
+        nextBounds.left = clamp(
+          moveLeftLeft,
+          outerBounds.minLeft,
+          outerBounds.maxRight - nextBounds.width
+        );
+      }
+      continue;
+    }
+
+    if (canMoveUp) {
+      nextBounds.top = clamp(
+        moveUpTop,
+        outerBounds.minTop,
+        outerBounds.maxBottom - nextBounds.height
+      );
+      continue;
+    }
+
+    nextBounds.left = clamp(
+      moveLeftLeft,
+      outerBounds.minLeft,
+      outerBounds.maxRight - nextBounds.width
+    );
+  }
+
+  return nextBounds;
+}
+
+function intersectsCutout(
+  bounds: { left: number; top: number; width: number; height: number },
+  cutout: { left: number; top: number; width: number; height: number }
+): boolean {
+  const right = bounds.left + bounds.width;
+  const bottom = bounds.top + bounds.height;
+  const cutoutRight = cutout.left + cutout.width;
+  const cutoutBottom = cutout.top + cutout.height;
+
+  return !(
+    right <= cutout.left ||
+    bounds.left >= cutoutRight ||
+    bottom <= cutout.top ||
+    bounds.top >= cutoutBottom
+  );
 }
 
 function resolveAlignedStart(value: number, size: number, alignment?: string): number {

@@ -53,6 +53,12 @@ type LayoutSafeZoneConfig = {
   right: number;
   bottom: number;
   left: number;
+  cutouts?: Array<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }>;
 };
 
 type LayoutSizeConfig = {

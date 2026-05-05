@@ -519,8 +519,14 @@ describe("buildRenderScriptDocument", () => {
     const safeZone = {
       left: 6,
       top: 14,
-      right: 79,
-      bottom: 60,
+      right: 94,
+      bottom: 65,
+      cutout: {
+        left: 79,
+        top: 60,
+        right: 94,
+        bottom: 65,
+      },
     };
 
     const openingHeaderBounds = getPercentBounds(openingHeader);
@@ -535,6 +541,9 @@ describe("buildRenderScriptDocument", () => {
     expect(badgeBounds.left).toBeGreaterThanOrEqual(safeZone.left);
     expect(badgeBounds.right).toBeLessThanOrEqual(safeZone.right);
     expect(badgeBounds.bottom).toBeLessThanOrEqual(safeZone.bottom);
+    expect(
+      badgeBounds.right <= safeZone.cutout.left || badgeBounds.top >= safeZone.cutout.bottom
+    ).toBe(true);
   });
 
   it("flows long content copy so body starts below the fitted header and body-only screens move up", () => {

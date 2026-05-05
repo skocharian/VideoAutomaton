@@ -58,9 +58,17 @@
       },
       "safeZone": {
         "top": 14,
-        "right": 21,
-        "bottom": 40,
-        "left": 6
+        "right": 6,
+        "bottom": 35,
+        "left": 6,
+        "cutouts": [
+          {
+            "left": 79,
+            "top": 60,
+            "width": 15,
+            "height": 5
+          }
+        ]
       },
       "background": {
         "x": "50%",
