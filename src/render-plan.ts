@@ -17,7 +17,11 @@ import {
   type LayoutTextConfig,
 } from "./render-layout";
 import { normalizeBackgroundSpeed } from "./parser";
-import { stripRichTextMarkup } from "./rich-text";
+import {
+  encodeRichTextPayload,
+  hasHighlightedSegments,
+  stripRichTextMarkup,
+} from "./rich-text";
 import { buildTintedAssetUrl, normalizeTintHexColor } from "./tinted-assets";
 import type {
   BackgroundAnalysisArtifact,
@@ -76,6 +80,11 @@ type ElementKeys = {
 
 type RenderAnimation = Record<string, RenderValue>;
 
+type RichTextRenderContext = {
+  assetBaseUrl: string;
+  canvas: { width: number; height: number };
+};
+
 type ResolvedTextAppearance = {
   fillColor: string;
   fontFamily: string;
@@ -91,6 +100,12 @@ type ResolvedTextAppearance = {
   shadowY: number;
   strokeColor?: string;
   strokeWidth?: number;
+  emphasisColor: string;
+  emphasisShadowColor: string;
+  emphasisShadowBlur: number;
+  emphasisShadowY: number;
+  emphasisStrokeColor?: string;
+  emphasisStrokeWidth?: number;
 };
 
 export function buildPreviewModel(options: RenderPlanOptions): PreviewModel {
@@ -362,7 +377,8 @@ function buildScreenLayers(
       5,
       contentLayouts.header,
       screen.header ?? "",
-      resolveTextAppearance(contentLayouts.header, theme.header, headerOverride)
+      resolveTextAppearance(contentLayouts.header, theme.header, headerOverride),
+      { assetBaseUrl: options.assetBaseUrl, canvas }
     );
     pushPreparedTextLayer(
       layers,
@@ -372,7 +388,8 @@ function buildScreenLayers(
       4,
       contentLayouts.body,
       screen.body ?? "",
-      resolveTextAppearance(contentLayouts.body, theme.body, bodyOverride)
+      resolveTextAppearance(contentLayouts.body, theme.body, bodyOverride),
+      { assetBaseUrl: options.assetBaseUrl, canvas }
     );
     pushPreparedTextLayer(
       layers,
@@ -382,7 +399,8 @@ function buildScreenLayers(
       6,
       contentLayouts.disclaimer,
       screen.disclaimer ?? "",
-      resolveTextAppearance(contentLayouts.disclaimer, theme.disclaimer, disclaimerOverride)
+      resolveTextAppearance(contentLayouts.disclaimer, theme.disclaimer, disclaimerOverride),
+      { assetBaseUrl: options.assetBaseUrl, canvas }
     );
 
     return layers;
@@ -458,7 +476,8 @@ function buildScreenLayers(
         resolvedHeaderLayout,
         styleProfile.textOverrides,
         headerText,
-        theme.header
+        theme.header,
+        { assetBaseUrl: options.assetBaseUrl, canvas }
       );
       pushTextLayer(
         layers,
@@ -469,7 +488,8 @@ function buildScreenLayers(
         resolvedBodyLayout,
         styleProfile.textOverrides,
         screen.body ?? "",
-        theme.body
+        theme.body,
+        { assetBaseUrl: options.assetBaseUrl, canvas }
       );
 
       return layers;
@@ -526,7 +546,8 @@ function buildScreenLayers(
             resolvedStarsLayout,
             theme.header,
             styleProfile.textOverrides?.[elementKeys.stars ?? ""]
-          )
+          ),
+          { assetBaseUrl: options.assetBaseUrl, canvas }
         );
       }
       pushTextLayer(
@@ -538,7 +559,8 @@ function buildScreenLayers(
         resolvedHeaderLayout,
         styleProfile.textOverrides,
         screen.header ?? "",
-        theme.header
+        theme.header,
+        { assetBaseUrl: options.assetBaseUrl, canvas }
       );
       if (shouldSplitFooter && resolvedAttributionLayout && testimonialFooter.attribution) {
         pushPreparedTextLayer(
@@ -553,7 +575,8 @@ function buildScreenLayers(
             resolvedAttributionLayout,
             theme.body,
             styleProfile.textOverrides?.[elementKeys.attribution ?? ""]
-          )
+          ),
+          { assetBaseUrl: options.assetBaseUrl, canvas }
         );
       } else {
         pushTextLayer(
@@ -565,7 +588,8 @@ function buildScreenLayers(
           resolvedBodyLayout,
           styleProfile.textOverrides,
           screen.body ?? "",
-          theme.body
+          theme.body,
+          { assetBaseUrl: options.assetBaseUrl, canvas }
         );
       }
 
@@ -630,7 +654,8 @@ function buildScreenLayers(
         resolvedHeaderLayout,
         styleProfile.textOverrides,
         headerText,
-        theme.header
+        theme.header,
+        { assetBaseUrl: options.assetBaseUrl, canvas }
       );
       pushTextLayer(
         layers,
@@ -641,7 +666,8 @@ function buildScreenLayers(
         resolvedBodyLayout,
         styleProfile.textOverrides,
         screen.body ?? "",
-        theme.body
+        theme.body,
+        { assetBaseUrl: options.assetBaseUrl, canvas }
       );
       pushImageLayer(
         layers,
@@ -774,7 +800,8 @@ function pushTextLayer(
   layout: LayoutTextConfig,
   overrides: ParsedBrief["textOverrides"] | undefined,
   text: string,
-  theme: ThemeSuggestion | undefined
+  theme: ThemeSuggestion | undefined,
+  richTextContext?: RichTextRenderContext
 ): void {
   if (!stripRichTextMarkup(text).trim()) return;
 
@@ -788,7 +815,8 @@ function pushTextLayer(
     track,
     resolvedLayout,
     text,
-    resolveTextAppearance(resolvedLayout, theme, override)
+    resolveTextAppearance(resolvedLayout, theme, override),
+    richTextContext
   );
 }
 
@@ -800,15 +828,30 @@ function pushPreparedTextLayer(
   track: number,
   layout: LayoutTextConfig | undefined,
   text: string,
-  appearance: ResolvedTextAppearance | undefined
+  appearance: ResolvedTextAppearance | undefined,
+  richTextContext?: RichTextRenderContext
 ): void {
   if (!layout || !stripRichTextMarkup(text).trim()) return;
 
-  layers.push(
-    preview
-      ? buildPreviewTextLayer(key, layout, text, appearance)
-      : buildRenderTextElement(key, duration, track, layout, text, appearance)
-  );
+  const textLayer = preview
+    ? buildPreviewTextLayer(key, layout, text, appearance)
+    : buildRenderTextElement(key, duration, track, layout, text, appearance);
+
+  layers.push(textLayer);
+
+  if (!preview && richTextContext && appearance && hasHighlightedSegments(text)) {
+    layers.push(
+      buildRenderRichTextHighlightElement(
+        key ? `${key}_Highlights` : undefined,
+        duration,
+        track + 20,
+        layout,
+        text,
+        appearance,
+        richTextContext
+      )
+    );
+  }
 }
 
 function pushImageLayer(
@@ -880,13 +923,13 @@ function resolveTextAppearance(
     ({
       styleId: "white",
       fillColor: "#ffffff",
-      shadowColor: "rgba(7,26,56,0.72)",
-      shadowBlur: 12,
+      shadowColor: "rgba(0,0,0,0.82)",
+      shadowBlur: 5,
       shadowY: 2,
     } satisfies ThemeSuggestion);
 
   return {
-    fillColor: override?.color?.trim() || baseTheme.fillColor,
+    fillColor: override?.color?.trim() || layout.fill_color || baseTheme.fillColor,
     fontFamily: override?.fontFamily?.trim() || layout.font_family,
     fontSize:
       Number.isFinite(override?.fontSize) && Number(override?.fontSize) > 0
@@ -897,24 +940,30 @@ function resolveTextAppearance(
     lineHeight: override?.lineHeight?.trim() || layout.line_height,
     letterSpacing: override?.letterSpacing?.trim() || layout.letter_spacing,
     textAlign: override?.textAlign || layout.text_align,
-    shadowColor: override?.shadowColor?.trim() || baseTheme.shadowColor,
+    shadowColor: override?.shadowColor?.trim() || layout.shadow_color || baseTheme.shadowColor,
     shadowBlur:
       Number.isFinite(override?.shadowBlur) && Number(override?.shadowBlur) >= 0
         ? Number(override?.shadowBlur)
-        : baseTheme.shadowBlur,
+        : layout.shadow_blur ?? baseTheme.shadowBlur,
     shadowX:
       Number.isFinite(override?.shadowX)
         ? Number(override?.shadowX)
-        : 0,
+        : layout.shadow_x ?? 0,
     shadowY:
       Number.isFinite(override?.shadowY)
         ? Number(override?.shadowY)
-        : baseTheme.shadowY,
+        : layout.shadow_y ?? baseTheme.shadowY,
     strokeColor: override?.strokeColor?.trim() || layout.stroke_color,
     strokeWidth:
       Number.isFinite(override?.strokeWidth) && Number(override?.strokeWidth) >= 0
         ? Number(override?.strokeWidth)
         : layout.stroke_width,
+    emphasisColor: layout.emphasis_color ?? "#f3c64f",
+    emphasisShadowColor: layout.emphasis_shadow_color ?? "rgba(255,193,48,0.92)",
+    emphasisShadowBlur: layout.emphasis_shadow_blur ?? 12,
+    emphasisShadowY: layout.emphasis_shadow_y ?? 0,
+    emphasisStrokeColor: layout.emphasis_stroke_color ?? layout.stroke_color,
+    emphasisStrokeWidth: layout.emphasis_stroke_width ?? layout.stroke_width,
   };
 }
 
@@ -960,6 +1009,60 @@ function buildRenderTextElement(
       : {}),
     animations,
   };
+}
+
+function buildRenderRichTextHighlightElement(
+  key: string | undefined,
+  duration: number,
+  track: number,
+  layout: LayoutTextConfig,
+  text: string,
+  appearance: ResolvedTextAppearance,
+  context: RichTextRenderContext
+): RenderElement {
+  const widthPx = percentToPixels(layout.width, context.canvas.width);
+  const heightPx = percentToPixels(layout.height, context.canvas.height);
+  const source = buildRichTextSvgUrl(context.assetBaseUrl, {
+    text,
+    width: widthPx,
+    height: heightPx,
+    align: appearance.textAlign,
+    fontFamily: appearance.fontFamily,
+    fontSize: appearance.fontSize,
+    fontWeight: appearance.fontWeight,
+    lineHeight: appearance.lineHeight,
+    emphasisColor: appearance.emphasisColor,
+    shadowColor: appearance.emphasisShadowColor,
+    shadowBlur: appearance.emphasisShadowBlur,
+    shadowY: appearance.emphasisShadowY,
+    strokeColor: appearance.emphasisStrokeColor,
+    strokeWidth: appearance.emphasisStrokeWidth,
+  });
+
+  return {
+    ...(key ? { name: key } : {}),
+    type: "image",
+    track,
+    time: 0,
+    duration,
+    x: layout.x,
+    y: layout.y,
+    width: layout.width,
+    height: layout.height,
+    ...(layout.x_alignment ? { x_alignment: layout.x_alignment } : {}),
+    ...(layout.y_alignment ? { y_alignment: layout.y_alignment } : {}),
+    fit: "contain",
+    source,
+    animations: buildTextAnimations(duration, layout.regionId === "content-disclaimer"),
+  };
+}
+
+function buildRichTextSvgUrl(
+  assetBaseUrl: string,
+  payload: Parameters<typeof encodeRichTextPayload>[0]
+): string {
+  const baseUrl = assetBaseUrl.replace(/\/assets\/public\/?$/, "");
+  return `${baseUrl}/rich-text.svg?payload=${encodeRichTextPayload(payload)}`;
 }
 
 function buildPreviewImageLayer(
@@ -1693,7 +1796,7 @@ function pixelsToPercent(value: number, total: number): number {
 
 function buildCssTextShadow(appearance: ResolvedTextAppearance | undefined): string {
   if (!appearance) {
-    return "0 2px 12px rgba(7, 26, 56, 0.72)";
+    return "0 2px 5px rgba(0, 0, 0, 0.84)";
   }
   return `${appearance.shadowX}px ${appearance.shadowY}px ${appearance.shadowBlur}px ${appearance.shadowColor}`;
 }

@@ -13,7 +13,7 @@
       --muted: #5d748b;
       --brand: #0d6efd;
       --brand-dark: #0a58ca;
-      --accent: #87f1f7;
+      --accent: #f3c44f;
       --shadow: 0 12px 32px rgba(18, 41, 63, 0.08);
       --radius: 18px;
     }
@@ -383,17 +383,20 @@
     }
 
     .preview-text-layer {
-      font-family: "Open Sans", "Avenir Next", "Segoe UI", sans-serif;
+      font-family: Georgia, "Times New Roman", serif;
       white-space: pre-wrap;
       word-break: break-word;
-      text-shadow: 0 2px 12px rgba(7, 26, 56, 0.72);
+      text-shadow: 0 2px 5px rgba(0, 0, 0, 0.84);
       overflow: visible;
       paint-order: stroke fill;
     }
 
     .preview-text-layer strong {
-      font-weight: 800;
+      font-weight: 700;
       color: var(--accent);
+      text-shadow:
+        0 0 12px rgba(255, 195, 45, 0.95),
+        0 2px 5px rgba(0, 0, 0, 0.88);
     }
 
     .preview-image-layer img {
@@ -1915,7 +1918,7 @@
           style="
             ${sharedStyle}
             color:${escapeHtml(layer.color || "#ffffff")};
-            font-family:${escapeHtml(layer.fontFamily || "Open Sans")};
+            font-family:${escapeHtml(layer.fontFamily || "Georgia")};
             font-size:calc(${escapeHtml(String(layer.fontSize || 28))} * 100cqh / var(--preview-canvas-height));
             font-weight:${escapeHtml(String(layer.fontWeight || 600))};
             font-style:${escapeHtml(layer.fontStyle || "normal")};
@@ -2114,7 +2117,7 @@
       const lineHeight = parseLineHeightValue(layer.lineHeight, fontSize);
       const fontWeight = layer.fontWeight || 600;
       const fontStyle = layer.fontStyle || "normal";
-      const fontFamily = layer.fontFamily || "Open Sans";
+      const fontFamily = layer.fontFamily || "Georgia";
       const textAlign = layer.textAlign || "left";
       const lines = wrapCanvasText(ctx, plainText, rect.width, fontStyle, fontWeight, fontSize, fontFamily);
 

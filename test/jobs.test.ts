@@ -550,6 +550,34 @@ describe("buildRenderScriptDocument", () => {
     ).toBe(true);
   });
 
+  it("renders markdown bold as a gold highlight overlay", () => {
+    const document = buildRenderScriptDocument({
+      parsed: makeParsed({
+        variants: [
+          {
+            id: "V1",
+            headline: "Your brain “**shoots**” you with **anxiety**",
+            subheadline: "(and you don’t even notice)",
+          },
+        ],
+      }),
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const openingScreen = getComposition(document, "Screen_1");
+    const header = getNestedElement(openingScreen, "S1_Header");
+    const highlights = getNestedElement(openingScreen, "S1_Header_Highlights");
+
+    expect(header?.text).toBe("Your brain “shoots” you with anxiety");
+    expect(highlights?.type).toBe("image");
+    expect(highlights?.source).toContain("/rich-text.svg?payload=");
+    expect(highlights?.track).toBeGreaterThan(Number(header?.track));
+  });
+
   it("flows long content copy into a centered safe-area stack", () => {
     const parsed = makeParsed({
       contentScreens: [

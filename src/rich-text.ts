@@ -12,6 +12,8 @@ export interface RichTextPayload {
   shadowColor?: string;
   shadowBlur?: number | string;
   shadowY?: number | string;
+  strokeColor?: string;
+  strokeWidth?: number | string;
 }
 
 export interface HighlightedFragment {
@@ -85,15 +87,23 @@ export function buildRichTextSvg(payload: RichTextPayload): string {
   const fontSize = payload.fontSize ?? 28;
   const fontWeight = payload.fontWeight ?? 600;
   const emphasisColor = payload.emphasisColor ?? "#8ff3f6";
+  const strokeColor = payload.strokeColor;
+  const strokeWidth = payload.strokeWidth;
   const shadowFilterId = payload.shadowColor ? "shadow" : "";
   const fragments = layoutHighlightedFragments(payload);
   const textElements = fragments.map((fragment) => {
     const baselineY = Math.max(fontSize, fragment.y + fontSize * 0.82);
+    const strokeAttributes =
+      strokeColor && Number.parseFloat(String(strokeWidth ?? 0)) > 0
+        ? ` stroke="${escapeXml(strokeColor)}" stroke-width="${escapeXml(
+            String(strokeWidth)
+          )}" paint-order="stroke fill"`
+        : "";
     return `<text x="${roundSvg(fragment.x)}" y="${roundSvg(baselineY)}" fill="${escapeXml(
       emphasisColor
     )}" font-family="${escapeXml(fontFamily)}" font-size="${roundSvg(
       fontSize
-    )}" font-weight="700"${shadowFilterId ? ` filter="url(#${shadowFilterId})"` : ""} xml:space="preserve">${escapeXml(
+    )}" font-weight="700"${strokeAttributes}${shadowFilterId ? ` filter="url(#${shadowFilterId})"` : ""} xml:space="preserve">${escapeXml(
       fragment.text
     )}</text>`;
   });

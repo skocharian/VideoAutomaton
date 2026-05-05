@@ -22,6 +22,17 @@ type LayoutTextConfig = {
   line_height: string;
   letter_spacing?: string;
   text_align: "left" | "center";
+  fill_color?: string;
+  shadow_color?: string;
+  shadow_blur?: number;
+  shadow_x?: number;
+  shadow_y?: number;
+  emphasis_color?: string;
+  emphasis_shadow_color?: string;
+  emphasis_shadow_blur?: number;
+  emphasis_shadow_y?: number;
+  emphasis_stroke_color?: string;
+  emphasis_stroke_width?: number;
   stroke_color?: string;
   stroke_width?: number;
 };
