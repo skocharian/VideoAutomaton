@@ -709,7 +709,7 @@ describe("buildRenderScriptDocument", () => {
 
     const accoladeComposition = getComposition(document, "Screen_5");
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
-      "/assets/tinted/accolades/must-have-app.png?color=%230c2340"
+      "/assets/tinted/accolades/must-have-app.png?color=%23ffffff"
     );
 
     const testimonialComposition = getComposition(document, "Screen_6");
@@ -746,6 +746,34 @@ describe("buildRenderScriptDocument", () => {
     const accoladeComposition = getComposition(document, "Screen_5");
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
       "/assets/tinted/accolades/must-have-app.png?color=%23f2c94c"
+    );
+  });
+
+  it("keeps the accolade asset light when text overrides use dark colors", () => {
+    const parsed = makeParsed({
+      styleProfiles: {
+        "9:16|bg/PinkTrees.mp4|1.000": {
+          textOverrides: {
+            Closing_Accolade_Body: {
+              color: "#000000",
+            },
+          },
+        },
+      },
+    });
+
+    const document = buildRenderScriptDocument({
+      parsed,
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const accoladeComposition = getComposition(document, "Screen_5");
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
+      "/assets/tinted/accolades/must-have-app.png?color=%23ffffff"
     );
   });
 

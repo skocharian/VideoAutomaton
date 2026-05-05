@@ -54,7 +54,7 @@ V4: 3 minutes to change your nervous system / Try it free
       subheadline: "And it's keeping you stressed",
     });
     expect(result.variants[3].id).toBe("V4");
-    expect(result.screenDurations["1"]).toBe(3);
+    expect(result.screenDurations["1"]).toBe(3.75);
   });
 
   it("extracts variants with pipe separator", () => {
@@ -132,7 +132,7 @@ Body: Guided breathwork sessions
     expect(result.screens["2"].body).toContain("breathing triggers");
     expect(result.screens["3"]).toBeDefined();
     expect(result.screens["3"].header).toBe("Stress changes breathing");
-    expect(result.screenDurations["2"]).toBe(3);
+    expect(result.screenDurations["2"]).toBe(4.25);
   });
 
   it("suppresses earlier duplicate closing-like testimonial screens from content", () => {
@@ -207,6 +207,20 @@ Body: Keep breathing
     const result = parseBrief({ ...baseBriefReq, brief });
     expect(result.screenDurations["1"]).toBe(2.25);
     expect(result.screenDurations["2"]).toBe(2.25);
+  });
+
+  it("suggests longer slide durations for denser copy when no duration is specified", () => {
+    const brief = `
+Screen 1:
+Short headline
+
+Screen 2:
+This screen has a much denser amount of copy, so the generated creative should give people enough time to read it comfortably before advancing.
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.screenDurations["1"]).toBe(3);
+    expect(result.screenDurations["2"]).toBeGreaterThan(result.screenDurations["1"]);
   });
 
   it("preserves bold markup in parsed screen text", () => {
@@ -554,7 +568,7 @@ Feel better. Sleep better.
       "testimonial",
       "endcard",
     ]);
-    expect(result.screenDurations["1"]).toBe(3);
+    expect(result.screenDurations["1"]).toBe(5.5);
     expect(result.screenDurations["11"]).toBe(3);
   });
 

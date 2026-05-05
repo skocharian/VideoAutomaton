@@ -9,8 +9,14 @@ import type {
   ScreenText,
 } from "./types";
 import { getClosingDefaults } from "./render-layout";
+import { stripRichTextMarkup } from "./rich-text";
 
 const DEFAULT_SLIDE_DURATION = 3;
+const MAX_SUGGESTED_SLIDE_DURATION = 7;
+const READING_WORDS_PER_SECOND = 3.6;
+const READING_CHARS_PER_SECOND = 24;
+const READING_BASE_SECONDS = 0.9;
+const READING_LINE_SECONDS = 0.1;
 
 /**
  * Parse a raw marketing brief into structured data.
@@ -275,11 +281,15 @@ function buildClosingScreens(
     (kind) => {
       const defaults = getClosingDefaults(kind);
       const detectedKey = detectedClosingScreenKeys[kind];
+      const suggestedDuration = estimateScreenDuration({
+        header: defaults.header || defaults.fallbackHeader,
+        body: defaults.body,
+      });
       return {
         kind,
         duration: detectedKey
-          ? screenDurations[detectedKey] ?? defaults.duration
-          : defaults.duration,
+          ? screenDurations[detectedKey] ?? suggestedDuration
+          : suggestedDuration,
         header: defaults.header,
         body: defaults.body,
       };
@@ -465,7 +475,7 @@ function parseDurationText(value: string | undefined): number | undefined {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
-function extractDefaultScreenDuration(brief: string): number {
+function extractDefaultScreenDuration(brief: string): number | undefined {
   const patterns = [
     /(?:each|every)\s+(?:slide|screen)\s*(?:is|should be|:)?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i,
     /(?:slide|screen)\s+duration(?:\s+is|\s+should be)?\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)\b/i,
@@ -479,7 +489,58 @@ function extractDefaultScreenDuration(brief: string): number {
     if (seconds !== undefined) return seconds;
   }
 
-  return DEFAULT_SLIDE_DURATION;
+  return undefined;
+}
+
+function estimateScreenDuration(screen: ScreenText): number {
+  const cleanText = [screen.header, screen.body, screen.disclaimer]
+    .map((value) => normalizeDurationCopy(value))
+    .filter(Boolean)
+    .join("\n");
+
+  if (!cleanText) return DEFAULT_SLIDE_DURATION;
+
+  const lineCount = cleanText.split("\n").filter((line) => line.trim()).length;
+  const wordCount = cleanText.match(/[\p{L}\p{N}’'&]+/gu)?.length ?? 0;
+  const characterCount = cleanText.replace(/\s+/g, "").length;
+  const readingSeconds = Math.max(
+    wordCount / READING_WORDS_PER_SECOND,
+    characterCount / READING_CHARS_PER_SECOND
+  );
+  const lineSeconds = Math.max(0, lineCount - 1) * READING_LINE_SECONDS;
+
+  return clampSuggestedDuration(READING_BASE_SECONDS + readingSeconds + lineSeconds);
+}
+
+function estimateOpeningDuration(variants: Variant[]): number {
+  if (variants.length === 0) return DEFAULT_SLIDE_DURATION;
+
+  return Math.max(
+    ...variants.map((variant) =>
+      estimateScreenDuration({
+        header: variant.headline,
+        body: variant.subheadline,
+      })
+    )
+  );
+}
+
+function normalizeDurationCopy(value: string | undefined): string {
+  return stripRichTextMarkup(value)
+    .replace(/<<[^>]+>>/g, " ")
+    .replace(/[★☆]/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function clampSuggestedDuration(value: number): number {
+  const rounded = Math.round(value * 4) / 4;
+  return Math.min(
+    MAX_SUGGESTED_SLIDE_DURATION,
+    Math.max(DEFAULT_SLIDE_DURATION, rounded)
+  );
 }
 
 function resolveScreenDurations(
@@ -488,7 +549,7 @@ function resolveScreenDurations(
   screens: Record<string, ScreenText>,
   explicitDurations: Record<string, number>
 ): Record<string, number> {
-  const defaultDuration = extractDefaultScreenDuration(brief);
+  const globalDefaultDuration = extractDefaultScreenDuration(brief);
   const activeScreenNumbers = new Set<string>();
 
   if (variants.length > 0) {
@@ -501,7 +562,12 @@ function resolveScreenDurations(
 
   const resolved: Record<string, number> = {};
   for (const num of [...activeScreenNumbers].sort((a, b) => Number(a) - Number(b))) {
-    resolved[num] = explicitDurations[num] ?? defaultDuration;
+    resolved[num] =
+      explicitDurations[num] ??
+      globalDefaultDuration ??
+      (num === "1" && variants.length > 0
+        ? estimateOpeningDuration(variants)
+        : estimateScreenDuration(screens[num] ?? {}));
   }
 
   return resolved;

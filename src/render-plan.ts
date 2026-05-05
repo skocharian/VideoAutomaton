@@ -1895,26 +1895,31 @@ function getAccoladeImageColor(
   styleProfile: StyleProfile,
   elementKeys: ElementKeys
 ): string {
-  const palette = getRenderLayoutConfig().palette;
   const imageOverride = getImageOverride(elementKeys.image, styleProfile.imageOverrides);
-  const accentOverride =
-    (elementKeys.body ? styleProfile.textOverrides?.[elementKeys.body]?.color : undefined) ||
-    (elementKeys.header ? styleProfile.textOverrides?.[elementKeys.header]?.color : undefined);
 
   if (imageOverride?.tintColor) {
     return normalizeTintHexColor(imageOverride.tintColor);
   }
 
-  if (!accentOverride) {
-    const suggested = theme.body ?? theme.header;
-    if (suggested?.styleId === "white-scrim") {
-      return normalizeTintHexColor(palette.navy);
-    }
-  }
+  const suggestedColor = theme.body?.fillColor || theme.header?.fillColor;
+  const normalizedSuggestion = normalizeTintHexColor(suggestedColor);
 
-  return normalizeTintHexColor(
-    accentOverride || theme.body?.fillColor || theme.header?.fillColor || "#ffffff"
-  );
+  // The accolade SVG is a brand mark. Dark fallback text colors make it read as
+  // black in preview/render, so keep the mark white unless it is explicitly tinted.
+  return isDarkTint(normalizedSuggestion) ? "#ffffff" : normalizedSuggestion;
+}
+
+function isDarkTint(color: string): boolean {
+  const match = color.match(/^#([0-9a-f]{6})$/i);
+  if (!match) return false;
+
+  const value = match[1];
+  const r = Number.parseInt(value.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(value.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(value.slice(4, 6), 16) / 255;
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+  return luminance < 0.45;
 }
 
 function resolveEndcardHeaderText(headerText: string, logoKey: string): string {
