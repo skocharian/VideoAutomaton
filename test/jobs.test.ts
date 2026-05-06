@@ -656,6 +656,28 @@ describe("buildRenderScriptDocument", () => {
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Header")).toBeUndefined();
   });
 
+  it("uses full-card accolade SVGs as the entire accolade block", () => {
+    const document = buildRenderScriptDocument({
+      parsed: makeParsed({
+        accolade: "accolades/selected-must-have-app.svg",
+      }),
+      variantIndex: 0,
+      backgroundKey: "bg/PinkTrees.mp4",
+      size: "9:16",
+      assetBaseUrl,
+      analysisArtifact: null,
+    });
+
+    const accoladeComposition = getComposition(document, "Screen_5");
+    const accoladeImage = getNestedElement(accoladeComposition, "Closing_Accolade_Image");
+
+    expect(accoladeImage?.source).toContain(
+      "/assets/tinted/accolades/selected-must-have-app.svg?color=%23ffffff"
+    );
+    expect(accoladeImage?.height).toBe("42%");
+    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Body")).toBeUndefined();
+  });
+
   it("tints the accolade asset and splits testimonial footer layers on bright backgrounds", () => {
     const brightArtifact = makeArtifact({
       "9:16": makeSizeData([

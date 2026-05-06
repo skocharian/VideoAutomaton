@@ -416,6 +416,7 @@ function buildScreenLayers(
       );
       const screenLayout = getClosingLayouts(options.size, "accolade");
       const layers: Array<PreviewLayer | RenderElement> = [];
+      const usesFullAccoladeAsset = isFullAccoladeAsset(options.parsed.accolade);
       const resolvedHeaderLayout = applyTextSafeZone(
         screenLayout.header,
         safeZone
@@ -425,7 +426,9 @@ function buildScreenLayers(
         safeZone
       );
       const resolvedImageLayout = applyImageSafeZone(
-        screenLayout.image,
+        usesFullAccoladeAsset
+          ? getFullAccoladeImageLayout(screenLayout.image)
+          : screenLayout.image,
         safeZone
       );
       const accoladeImageColor = getAccoladeImageColor(
@@ -487,7 +490,7 @@ function buildScreenLayers(
         4,
         resolvedBodyLayout,
         styleProfile.textOverrides,
-        screen.body ?? "",
+        usesFullAccoladeAsset ? "" : screen.body ?? "",
         theme.body,
         { assetBaseUrl: options.assetBaseUrl, canvas }
       );
@@ -1907,6 +1910,25 @@ function getAccoladeImageColor(
   // The accolade SVG is a brand mark. Dark fallback text colors make it read as
   // black in preview/render, so keep the mark white unless it is explicitly tinted.
   return isDarkTint(normalizedSuggestion) ? "#ffffff" : normalizedSuggestion;
+}
+
+function isFullAccoladeAsset(key: string | undefined): boolean {
+  return /(?:^|\/)selected[-_\s]*must[-_\s]*have[-_\s]*app\.(?:svg|png|jpe?g|webp)$/i.test(
+    key ?? ""
+  );
+}
+
+function getFullAccoladeImageLayout(layout: LayoutImageConfig): LayoutImageConfig {
+  return {
+    ...layout,
+    x: "50%",
+    y: "35%",
+    width: "78%",
+    height: "42%",
+    x_alignment: "50%",
+    y_alignment: "50%",
+    fit: "contain",
+  };
 }
 
 function isDarkTint(color: string): boolean {
