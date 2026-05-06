@@ -147,11 +147,16 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
   const fontSize = payload.fontSize ?? 28;
   const fontWeight = payload.fontWeight ?? 600;
   const fontStyle = payload.fontStyle ?? "normal";
-  const lineHeight = resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize);
+  const lineHeight = Math.max(
+    resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize),
+    fontSize * 1.08
+  );
   const letterSpacing = payload.letterSpacing;
   const color = payload.color ?? "#ffffff";
   const emphasisColor = payload.emphasisColor ?? color;
-  const lines = layoutRichTextLines(payload.text, width, fontSize, fontWeight);
+  // SVG renderers do the final glyph layout. Keep wrapping slightly conservative
+  // so estimated text width does not push real rendered text outside the box.
+  const lines = layoutRichTextLines(payload.text, width * 0.9, fontSize, fontWeight);
   const visibleLineCount = Math.max(1, Math.floor(height / Math.max(1, lineHeight)));
   const visibleLines = lines.slice(0, visibleLineCount);
   const normalFilterId = payload.shadowColor ? "shadow" : "";
@@ -162,48 +167,46 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
     const line = visibleLines[lineIndex];
     const startX = align === "center" ? Math.max(0, (width - line.width) / 2) : 0;
     const baselineY = Math.max(fontSize, lineIndex * lineHeight + fontSize * 0.82);
-    let cursorX = startX;
+    const lineSpans: string[] = [];
 
     for (const token of line.tokens) {
       const tokenWeight = token.bold ? 700 : fontWeight;
-      const tokenWidth = measureTextWidth(token.text, fontSize, tokenWeight);
       const renderableText = token.text;
+      const fill = token.bold ? emphasisColor : color;
+      const filterId = token.bold ? emphasisFilterId : normalFilterId;
+      const strokeColor = token.bold
+        ? payload.emphasisStrokeColor ?? payload.strokeColor
+        : payload.strokeColor;
+      const strokeWidth = token.bold
+        ? payload.emphasisStrokeWidth ?? payload.strokeWidth
+        : payload.strokeWidth;
+      const strokeAttributes =
+        strokeColor && Number.parseFloat(String(strokeWidth ?? 0)) > 0
+          ? ` stroke="${escapeXml(strokeColor)}" stroke-width="${escapeXml(
+              String(strokeWidth)
+            )}" paint-order="stroke fill"`
+          : "";
+      const letterSpacingAttribute =
+        typeof letterSpacing !== "undefined"
+          ? ` letter-spacing="${escapeXml(String(letterSpacing))}"`
+          : "";
 
-      if (renderableText.trim()) {
-        const fill = token.bold ? emphasisColor : color;
-        const filterId = token.bold ? emphasisFilterId : normalFilterId;
-        const strokeColor = token.bold
-          ? payload.emphasisStrokeColor ?? payload.strokeColor
-          : payload.strokeColor;
-        const strokeWidth = token.bold
-          ? payload.emphasisStrokeWidth ?? payload.strokeWidth
-          : payload.strokeWidth;
-        const strokeAttributes =
-          strokeColor && Number.parseFloat(String(strokeWidth ?? 0)) > 0
-            ? ` stroke="${escapeXml(strokeColor)}" stroke-width="${escapeXml(
-                String(strokeWidth)
-              )}" paint-order="stroke fill"`
-            : "";
-        const letterSpacingAttribute =
-          typeof letterSpacing !== "undefined"
-            ? ` letter-spacing="${escapeXml(String(letterSpacing))}"`
-            : "";
-
-        textElements.push(
-          `<text x="${roundSvg(cursorX)}" y="${roundSvg(baselineY)}" fill="${escapeXml(
-            fill
-          )}" font-family="${escapeXml(fontFamily)}" font-size="${roundSvg(
-            fontSize
-          )}" font-weight="${escapeXml(String(tokenWeight))}" font-style="${escapeXml(
-            fontStyle
-          )}"${letterSpacingAttribute}${strokeAttributes}${
-            filterId ? ` filter="url(#${filterId})"` : ""
-          } xml:space="preserve">${escapeXml(renderableText)}</text>`
-        );
-      }
-
-      cursorX += tokenWidth;
+      lineSpans.push(
+        `<tspan fill="${escapeXml(fill)}" font-weight="${escapeXml(
+          String(tokenWeight)
+        )}"${letterSpacingAttribute}${strokeAttributes}${
+          filterId ? ` filter="url(#${filterId})"` : ""
+        }>${escapeXml(renderableText)}</tspan>`
+      );
     }
+
+    textElements.push(
+      `<text x="${roundSvg(startX)}" y="${roundSvg(baselineY)}" font-family="${escapeXml(
+        fontFamily
+      )}" font-size="${roundSvg(fontSize)}" font-style="${escapeXml(
+        fontStyle
+      )}" xml:space="preserve">${lineSpans.join("")}</text>`
+    );
   }
 
   return [

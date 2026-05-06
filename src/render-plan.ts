@@ -79,6 +79,8 @@ type ElementKeys = {
 
 type RenderAnimation = Record<string, RenderValue>;
 
+const RICH_TEXT_SVG_URL_VERSION = "2";
+
 type RichTextRenderContext = {
   assetBaseUrl: string;
   canvas: { width: number; height: number };
@@ -1109,7 +1111,9 @@ function buildRichTextSvgUrl(
   payload: Parameters<typeof encodeRichTextPayload>[0]
 ): string {
   const baseUrl = assetBaseUrl.replace(/\/assets\/public\/?$/, "");
-  return `${baseUrl}/rich-text.svg?payload=${encodeRichTextPayload(payload)}`;
+  return `${baseUrl}/rich-text.svg?payload=${encodeRichTextPayload(
+    payload
+  )}&v=${RICH_TEXT_SVG_URL_VERSION}`;
 }
 
 function buildPreviewImageLayer(
