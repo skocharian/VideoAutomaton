@@ -5,6 +5,8 @@ function encodeAssetKey(key: string): string {
     .join("/");
 }
 
+const TINTED_ASSET_URL_VERSION = "2";
+
 export function normalizeTintHexColor(color?: string): string {
   const trimmed = color?.trim();
   if (!trimmed) return "#ffffff";
@@ -40,7 +42,9 @@ export function buildTintedAssetUrl(
 
   return `${normalizedBase.slice(0, -"/public".length)}/tinted/${encodeAssetKey(
     key
-  )}?color=${encodeURIComponent(normalizeTintHexColor(color))}`;
+  )}?color=${encodeURIComponent(
+    normalizeTintHexColor(color)
+  )}&v=${TINTED_ASSET_URL_VERSION}`;
 }
 
 export function buildTintedAssetSvg(
@@ -101,7 +105,7 @@ function tintSvgMarkup(svgMarkup: string, tintColor: string): string {
   );
 
   tinted = replaceSvgPaint(tinted, tintColor);
-  tinted = injectDefaultSvgTint(tinted, tintColor);
+  tinted = addMissingSvgPaintAttributes(tinted, tintColor);
   return tinted;
 }
 
@@ -117,17 +121,31 @@ function replaceSvgPaint(svgMarkup: string, tintColor: string): string {
     );
 }
 
-function injectDefaultSvgTint(svgMarkup: string, tintColor: string): string {
-  const defaultTintStyle = [
-    `<style data-video-automaton-tint="default">`,
-    `:where(path, rect, circle, ellipse, polygon, text, tspan) { fill: ${escapeXml(
-      tintColor
-    )}; }`,
-    `:where(line, polyline) { stroke: ${escapeXml(tintColor)}; }`,
-    `</style>`,
-  ].join("");
+function addMissingSvgPaintAttributes(svgMarkup: string, tintColor: string): string {
+  return svgMarkup.replace(
+    /<(path|rect|circle|ellipse|polygon|text|tspan|line|polyline)\b([^>]*)>/gi,
+    (match, tagName: string, attributes: string) => {
+      const selfClosing = /\/\s*$/.test(attributes);
+      let nextAttributes = selfClosing
+        ? attributes.replace(/\/\s*$/, "").trimEnd()
+        : attributes;
+      const isStrokeOnlyTag = /^(line|polyline)$/i.test(tagName);
 
-  return svgMarkup.replace(/(<svg\b[^>]*>)/i, `$1${defaultTintStyle}`);
+      if (!isStrokeOnlyTag && !hasSvgAttribute(nextAttributes, "fill")) {
+        nextAttributes += ` fill="${escapeXml(tintColor)}"`;
+      }
+
+      if (isStrokeOnlyTag && !hasSvgAttribute(nextAttributes, "stroke")) {
+        nextAttributes += ` stroke="${escapeXml(tintColor)}"`;
+      }
+
+      return `<${tagName}${nextAttributes}${selfClosing ? " /" : ""}>`;
+    }
+  );
+}
+
+function hasSvgAttribute(attributes: string, name: string): boolean {
+  return new RegExp(String.raw`\b${name}\s*=`, "i").test(attributes);
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

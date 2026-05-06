@@ -1,4 +1,5 @@
 export interface RichTextPayload {
+  mode?: "highlights" | "full";
   text: string;
   width: number;
   height: number;
@@ -6,7 +7,9 @@ export interface RichTextPayload {
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: number | string;
+  fontStyle?: string;
   lineHeight?: number | string;
+  letterSpacing?: number | string;
   color?: string;
   emphasisColor?: string;
   shadowColor?: string;
@@ -14,6 +17,11 @@ export interface RichTextPayload {
   shadowY?: number | string;
   strokeColor?: string;
   strokeWidth?: number | string;
+  emphasisShadowColor?: string;
+  emphasisShadowBlur?: number | string;
+  emphasisShadowY?: number | string;
+  emphasisStrokeColor?: string;
+  emphasisStrokeWidth?: number | string;
 }
 
 export interface HighlightedFragment {
@@ -80,12 +88,18 @@ export function decodeRichTextPayload(encoded: string): RichTextPayload {
 }
 
 export function buildRichTextSvg(payload: RichTextPayload): string {
+  if (payload.mode === "full") {
+    return buildFullRichTextSvg(payload);
+  }
+
+  return buildHighlightedRichTextSvg(payload);
+}
+
+function buildHighlightedRichTextSvg(payload: RichTextPayload): string {
   const width = Math.max(1, Math.round(payload.width));
   const height = Math.max(1, Math.round(payload.height));
-  const align = payload.align ?? "left";
   const fontFamily = payload.fontFamily ?? "Open Sans, Aileron, Arial, sans-serif";
   const fontSize = payload.fontSize ?? 28;
-  const fontWeight = payload.fontWeight ?? 600;
   const emphasisColor = payload.emphasisColor ?? "#8ff3f6";
   const strokeColor = payload.strokeColor;
   const strokeWidth = payload.strokeWidth;
@@ -116,6 +130,100 @@ export function buildRichTextSvg(payload: RichTextPayload): string {
           payload.shadowColor,
           payload.shadowBlur ?? 0,
           payload.shadowY ?? 0,
+          width,
+          height
+        )
+      : "",
+    ...textElements,
+    "</svg>",
+  ].join("");
+}
+
+function buildFullRichTextSvg(payload: RichTextPayload): string {
+  const width = Math.max(1, Math.round(payload.width));
+  const height = Math.max(1, Math.round(payload.height));
+  const align = payload.align ?? "left";
+  const fontFamily = payload.fontFamily ?? "Georgia, 'Times New Roman', serif";
+  const fontSize = payload.fontSize ?? 28;
+  const fontWeight = payload.fontWeight ?? 600;
+  const fontStyle = payload.fontStyle ?? "normal";
+  const lineHeight = resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize);
+  const letterSpacing = payload.letterSpacing;
+  const color = payload.color ?? "#ffffff";
+  const emphasisColor = payload.emphasisColor ?? color;
+  const lines = layoutRichTextLines(payload.text, width, fontSize, fontWeight);
+  const visibleLineCount = Math.max(1, Math.floor(height / Math.max(1, lineHeight)));
+  const visibleLines = lines.slice(0, visibleLineCount);
+  const normalFilterId = payload.shadowColor ? "shadow" : "";
+  const emphasisFilterId = payload.emphasisShadowColor ? "emphasis-shadow" : normalFilterId;
+  const textElements: string[] = [];
+
+  for (let lineIndex = 0; lineIndex < visibleLines.length; lineIndex += 1) {
+    const line = visibleLines[lineIndex];
+    const startX = align === "center" ? Math.max(0, (width - line.width) / 2) : 0;
+    const baselineY = Math.max(fontSize, lineIndex * lineHeight + fontSize * 0.82);
+    let cursorX = startX;
+
+    for (const token of line.tokens) {
+      const tokenWeight = token.bold ? 700 : fontWeight;
+      const tokenWidth = measureTextWidth(token.text, fontSize, tokenWeight);
+      const renderableText = token.text;
+
+      if (renderableText.trim()) {
+        const fill = token.bold ? emphasisColor : color;
+        const filterId = token.bold ? emphasisFilterId : normalFilterId;
+        const strokeColor = token.bold
+          ? payload.emphasisStrokeColor ?? payload.strokeColor
+          : payload.strokeColor;
+        const strokeWidth = token.bold
+          ? payload.emphasisStrokeWidth ?? payload.strokeWidth
+          : payload.strokeWidth;
+        const strokeAttributes =
+          strokeColor && Number.parseFloat(String(strokeWidth ?? 0)) > 0
+            ? ` stroke="${escapeXml(strokeColor)}" stroke-width="${escapeXml(
+                String(strokeWidth)
+              )}" paint-order="stroke fill"`
+            : "";
+        const letterSpacingAttribute =
+          typeof letterSpacing !== "undefined"
+            ? ` letter-spacing="${escapeXml(String(letterSpacing))}"`
+            : "";
+
+        textElements.push(
+          `<text x="${roundSvg(cursorX)}" y="${roundSvg(baselineY)}" fill="${escapeXml(
+            fill
+          )}" font-family="${escapeXml(fontFamily)}" font-size="${roundSvg(
+            fontSize
+          )}" font-weight="${escapeXml(String(tokenWeight))}" font-style="${escapeXml(
+            fontStyle
+          )}"${letterSpacingAttribute}${strokeAttributes}${
+            filterId ? ` filter="url(#${filterId})"` : ""
+          } xml:space="preserve">${escapeXml(renderableText)}</text>`
+        );
+      }
+
+      cursorX += tokenWidth;
+    }
+  }
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    payload.shadowColor
+      ? buildShadowDefinition(
+          normalFilterId,
+          payload.shadowColor,
+          payload.shadowBlur ?? 0,
+          payload.shadowY ?? 0,
+          width,
+          height
+        )
+      : "",
+    payload.emphasisShadowColor
+      ? buildShadowDefinition(
+          emphasisFilterId,
+          payload.emphasisShadowColor,
+          payload.emphasisShadowBlur ?? payload.shadowBlur ?? 0,
+          payload.emphasisShadowY ?? payload.shadowY ?? 0,
           width,
           height
         )

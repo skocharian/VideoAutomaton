@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTintedAssetSvg } from "../src/tinted-assets";
+import { buildTintedAssetSvg, buildTintedAssetUrl } from "../src/tinted-assets";
 
 describe("buildTintedAssetSvg", () => {
   it("recolors SVG sources directly instead of wrapping them in a nested image filter", () => {
@@ -13,6 +13,7 @@ describe("buildTintedAssetSvg", () => {
   <rect x="-50" y="0" width="10" height="10" fill="#000" />
   <path d="M20 20h10v10H20z" />
   <path d="M40 40h10v10H40z" fill="none" />
+  <line x1="0" y1="0" x2="10" y2="10" />
   <path class="mark" d="M0 0h10v10H0z" />
 </svg>`;
 
@@ -24,8 +25,8 @@ describe("buildTintedAssetSvg", () => {
 
     expect(result).toContain(`overflow="hidden"`);
     expect(result).toContain(`preserveAspectRatio="xMidYMid meet"`);
-    expect(result).toContain(`data-video-automaton-tint="default"`);
-    expect(result).toContain(`:where(path, rect, circle, ellipse, polygon, text, tspan) { fill: #12abef; }`);
+    expect(result).toContain(`<path d="M20 20h10v10H20z" fill="#12abef"`);
+    expect(result).toContain(`<line x1="0" y1="0" x2="10" y2="10" stroke="#12abef"`);
     expect(result).toContain(`fill: #12abef`);
     expect(result).toContain(`stroke: #12abef`);
     expect(result).toContain(`fill="#12abef"`);
@@ -42,5 +43,17 @@ describe("buildTintedAssetSvg", () => {
     expect(result).toContain("<image ");
     expect(result).toContain("data:image/png;base64");
     expect(result).toContain("feFlood");
+  });
+
+  it("cache-busts tinted asset urls so updated tinting reaches browsers", () => {
+    expect(
+      buildTintedAssetUrl(
+        "https://worker.example.com/assets/public",
+        "accolades/selected-must-have-app.svg",
+        "#fff"
+      )
+    ).toBe(
+      "https://worker.example.com/assets/tinted/accolades/selected-must-have-app.svg?color=%23ffffff&v=2"
+    );
   });
 });

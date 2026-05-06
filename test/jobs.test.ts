@@ -8,6 +8,7 @@ import {
 } from "../src/background-analysis";
 import { createRenderJobs } from "../src/jobs";
 import { buildPreviewModel, buildRenderScriptDocument } from "../src/render-plan";
+import { decodeRichTextPayload, stripRichTextMarkup } from "../src/rich-text";
 import { getDerivedBackgroundKey, prepareBackgroundVariants } from "../src/speed";
 import type {
   BackgroundAnalysisArtifact,
@@ -193,6 +194,12 @@ function getNestedElement(
   return composition.elements.find((element) => element.name === name);
 }
 
+function getRichTextPayload(element: RenderElement | undefined) {
+  const source = typeof element?.source === "string" ? element.source : "";
+  const payload = new URL(source).searchParams.get("payload");
+  return payload ? decodeRichTextPayload(payload) : undefined;
+}
+
 function parsePercent(value: string | number | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value !== "string") return 0;
@@ -363,7 +370,7 @@ describe("buildRenderScriptDocument", () => {
     expect(getNestedElement(accoladeComposition, "Closing_Accolade_Image")?.source).toContain(
       "/assets/tinted/accolades/must-have-app.png?color=%23ffffff"
     );
-    expect(getNestedElement(accoladeComposition, "Closing_Accolade_Body")?.text).toContain(
+    expect(getRichTextPayload(getNestedElement(accoladeComposition, "Closing_Accolade_Body"))?.text).toContain(
       "18,000,000"
     );
 
@@ -373,7 +380,7 @@ describe("buildRenderScriptDocument", () => {
     const endcardComposition = getComposition(document, "Screen_7");
     expect(getNestedElement(endcardComposition, "Closing_Endcard_Logo")).toBeDefined();
     expect(getNestedElement(endcardComposition, "Closing_Endcard_Badge")).toBeDefined();
-    expect(getNestedElement(endcardComposition, "Closing_Endcard_Body")?.text).toBe(
+    expect(getRichTextPayload(getNestedElement(endcardComposition, "Closing_Endcard_Body"))?.text).toBe(
       "Feel better. Sleep better."
     );
   });
@@ -482,20 +489,20 @@ describe("buildRenderScriptDocument", () => {
 
     expect(parsePercent(previewHeader?.x)).toBeGreaterThanOrEqual(6);
     expect(parsePercent(previewHeader?.y)).toBeGreaterThanOrEqual(14);
-    expect(renderHeader?.font_size).toBe(52);
-    expect(renderHeader?.fill_color).toBe("#ffcc00");
+    expect(getRichTextPayload(renderHeader)?.fontSize).toBe(52);
+    expect(getRichTextPayload(renderHeader)?.color).toBe("#ffcc00");
     expect(previewHeader?.fontFamily).toBe("Georgia");
     expect(previewHeader?.fontStyle).toBe("italic");
     expect(previewHeader?.textAlign).toBe("center");
     expect(previewHeader?.strokeColor).toBe("#101010");
     expect(previewHeader?.strokeWidth).toBe(2);
-    expect(renderHeader?.font_family).toBe("Georgia");
-    expect(renderHeader?.font_style).toBe("italic");
-    expect(renderHeader?.text_align).toBe("center");
-    expect(renderHeader?.shadow_color).toBe("rgba(0,0,0,0.92)");
-    expect(renderHeader?.shadow_blur).toBe("20px");
-    expect(renderHeader?.stroke_color).toBe("#101010");
-    expect(renderHeader?.stroke_width).toBe("2px");
+    expect(getRichTextPayload(renderHeader)?.fontFamily).toBe("Georgia");
+    expect(getRichTextPayload(renderHeader)?.fontStyle).toBe("italic");
+    expect(getRichTextPayload(renderHeader)?.align).toBe("center");
+    expect(getRichTextPayload(renderHeader)?.shadowColor).toBe("rgba(0,0,0,0.92)");
+    expect(getRichTextPayload(renderHeader)?.shadowBlur).toBe(20);
+    expect(getRichTextPayload(renderHeader)?.strokeColor).toBe("#101010");
+    expect(getRichTextPayload(renderHeader)?.strokeWidth).toBe(2);
     expect(renderHeader?.track).not.toBe(renderBody?.track);
   });
 
@@ -550,7 +557,7 @@ describe("buildRenderScriptDocument", () => {
     ).toBe(true);
   });
 
-  it("renders markdown bold as a gold highlight overlay", () => {
+  it("renders markdown bold through the shared rich text layer", () => {
     const document = buildRenderScriptDocument({
       parsed: makeParsed({
         variants: [
@@ -570,12 +577,15 @@ describe("buildRenderScriptDocument", () => {
 
     const openingScreen = getComposition(document, "Screen_1");
     const header = getNestedElement(openingScreen, "S1_Header");
-    const highlights = getNestedElement(openingScreen, "S1_Header_Highlights");
+    const headerPayload = getRichTextPayload(header);
 
-    expect(header?.text).toBe("Your brain “shoots” you with anxiety");
-    expect(highlights?.type).toBe("image");
-    expect(highlights?.source).toContain("/rich-text.svg?payload=");
-    expect(highlights?.track).toBeGreaterThan(Number(header?.track));
+    expect(header?.type).toBe("image");
+    expect(header?.source).toContain("/rich-text.svg?payload=");
+    expect(headerPayload?.mode).toBe("full");
+    expect(stripRichTextMarkup(headerPayload?.text)).toBe(
+      "Your brain “shoots” you with anxiety"
+    );
+    expect(headerPayload?.emphasisColor).toBe("#f3c44f");
   });
 
   it("flows long content copy into a centered safe-area stack", () => {
@@ -735,11 +745,11 @@ describe("buildRenderScriptDocument", () => {
     );
 
     const testimonialComposition = getComposition(document, "Screen_6");
-    expect(getNestedElement(testimonialComposition, "Closing_Testimonial_Stars")?.text).toBe(
+    expect(getRichTextPayload(getNestedElement(testimonialComposition, "Closing_Testimonial_Stars"))?.text).toBe(
       "★★★★★"
     );
     expect(
-      getNestedElement(testimonialComposition, "Closing_Testimonial_Attribution")?.text
+      getRichTextPayload(getNestedElement(testimonialComposition, "Closing_Testimonial_Attribution"))?.text
     ).toBe("Maggie S.");
   });
 
@@ -864,7 +874,9 @@ describe("buildRenderScriptDocument", () => {
 
     expect(previewHeader?.color).toBe("#ffcc00");
     expect(parsePercent(previewHeader?.x)).toBeGreaterThanOrEqual(6);
-    expect(getNestedElement(renderScreen, "S3_Header")?.fill_color).toBe("#ffcc00");
+    expect(getRichTextPayload(getNestedElement(renderScreen, "S3_Header"))?.color).toBe(
+      "#ffcc00"
+    );
     expect(getNestedElement(renderScreen, "Scrim_content-3")).toBeUndefined();
   });
 });
@@ -1032,7 +1044,7 @@ describe("background analysis storage and render submission", () => {
       (element: { name?: string }) => element.name === "S1_Header"
     );
 
-    expect(header.fill_color).toBe("#ffffff");
+    expect(getRichTextPayload(header)?.color).toBe("#ffffff");
   });
 
   it("uses a cached derived background clip when a non-default speed is configured", async () => {

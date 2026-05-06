@@ -19,7 +19,6 @@ import {
 import { normalizeBackgroundSpeed } from "./parser";
 import {
   encodeRichTextPayload,
-  hasHighlightedSegments,
   stripRichTextMarkup,
 } from "./rich-text";
 import { buildTintedAssetUrl, normalizeTintHexColor } from "./tinted-assets";
@@ -836,25 +835,27 @@ function pushPreparedTextLayer(
 ): void {
   if (!layout || !stripRichTextMarkup(text).trim()) return;
 
-  const textLayer = preview
-    ? buildPreviewTextLayer(key, layout, text, appearance)
-    : buildRenderTextElement(key, duration, track, layout, text, appearance);
-
-  layers.push(textLayer);
-
-  if (!preview && richTextContext && appearance && hasHighlightedSegments(text)) {
+  if (richTextContext && appearance) {
     layers.push(
-      buildRenderRichTextHighlightElement(
-        key ? `${key}_Highlights` : undefined,
+      buildRichTextImageLayer(
+        preview,
+        key,
         duration,
-        track + 20,
+        track,
         layout,
         text,
         appearance,
         richTextContext
       )
     );
+    return;
   }
+
+  const textLayer = preview
+    ? buildPreviewTextLayer(key, layout, text, appearance)
+    : buildRenderTextElement(key, duration, track, layout, text, appearance);
+
+  layers.push(textLayer);
 }
 
 function pushImageLayer(
@@ -1014,7 +1015,8 @@ function buildRenderTextElement(
   };
 }
 
-function buildRenderRichTextHighlightElement(
+function buildRichTextImageLayer(
+  preview: boolean,
   key: string | undefined,
   duration: number,
   track: number,
@@ -1022,10 +1024,11 @@ function buildRenderRichTextHighlightElement(
   text: string,
   appearance: ResolvedTextAppearance,
   context: RichTextRenderContext
-): RenderElement {
+): PreviewLayer | RenderElement {
   const widthPx = percentToPixels(layout.width, context.canvas.width);
   const heightPx = percentToPixels(layout.height, context.canvas.height);
   const source = buildRichTextSvgUrl(context.assetBaseUrl, {
+    mode: "full",
     text,
     width: widthPx,
     height: heightPx,
@@ -1033,14 +1036,55 @@ function buildRenderRichTextHighlightElement(
     fontFamily: appearance.fontFamily,
     fontSize: appearance.fontSize,
     fontWeight: appearance.fontWeight,
+    fontStyle: appearance.fontStyle,
     lineHeight: appearance.lineHeight,
+    letterSpacing: appearance.letterSpacing,
+    color: appearance.fillColor,
     emphasisColor: appearance.emphasisColor,
-    shadowColor: appearance.emphasisShadowColor,
-    shadowBlur: appearance.emphasisShadowBlur,
-    shadowY: appearance.emphasisShadowY,
-    strokeColor: appearance.emphasisStrokeColor,
-    strokeWidth: appearance.emphasisStrokeWidth,
+    shadowColor: appearance.shadowColor,
+    shadowBlur: appearance.shadowBlur,
+    shadowY: appearance.shadowY,
+    strokeColor: appearance.strokeColor,
+    strokeWidth: appearance.strokeWidth,
+    emphasisShadowColor: appearance.emphasisShadowColor,
+    emphasisShadowBlur: appearance.emphasisShadowBlur,
+    emphasisShadowY: appearance.emphasisShadowY,
+    emphasisStrokeColor: appearance.emphasisStrokeColor,
+    emphasisStrokeWidth: appearance.emphasisStrokeWidth,
   });
+
+  if (preview) {
+    return {
+      key: key ?? crypto.randomUUID(),
+      type: "image",
+      x: layout.x,
+      y: layout.y,
+      width: layout.width,
+      height: layout.height,
+      xAnchor: layout.x_anchor,
+      yAnchor: layout.y_anchor,
+      xAlignment: layout.x_alignment,
+      yAlignment: layout.y_alignment,
+      src: source,
+      fit: "contain",
+      text,
+      color: appearance.fillColor,
+      fontFamily: appearance.fontFamily,
+      fontSize: appearance.fontSize,
+      fontWeight: appearance.fontWeight,
+      fontStyle: appearance.fontStyle,
+      lineHeight: appearance.lineHeight,
+      letterSpacing: appearance.letterSpacing,
+      textAlign: appearance.textAlign,
+      textShadow: buildCssTextShadow(appearance),
+      shadowColor: appearance.shadowColor,
+      shadowBlur: appearance.shadowBlur,
+      shadowX: appearance.shadowX,
+      shadowY: appearance.shadowY,
+      strokeColor: appearance.strokeColor,
+      strokeWidth: appearance.strokeWidth,
+    };
+  }
 
   return {
     ...(key ? { name: key } : {}),
