@@ -101,6 +101,7 @@ function tintSvgMarkup(svgMarkup: string, tintColor: string): string {
   );
 
   tinted = replaceSvgPaint(tinted, tintColor);
+  tinted = injectDefaultSvgTint(tinted, tintColor);
   return tinted;
 }
 
@@ -114,6 +115,19 @@ function replaceSvgPaint(svgMarkup: string, tintColor: string): string {
       /\b(fill|stroke)\s*:\s*(?!none\b)([^;"'}]+)/gi,
       (_match, property) => `${property}: ${tintColor}`
     );
+}
+
+function injectDefaultSvgTint(svgMarkup: string, tintColor: string): string {
+  const defaultTintStyle = [
+    `<style data-video-automaton-tint="default">`,
+    `:where(path, rect, circle, ellipse, polygon, text, tspan) { fill: ${escapeXml(
+      tintColor
+    )}; }`,
+    `:where(line, polyline) { stroke: ${escapeXml(tintColor)}; }`,
+    `</style>`,
+  ].join("");
+
+  return svgMarkup.replace(/(<svg\b[^>]*>)/i, `$1${defaultTintStyle}`);
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

@@ -11,6 +11,8 @@ describe("buildTintedAssetSvg", () => {
     </style>
   </defs>
   <rect x="-50" y="0" width="10" height="10" fill="#000" />
+  <path d="M20 20h10v10H20z" />
+  <path d="M40 40h10v10H40z" fill="none" />
   <path class="mark" d="M0 0h10v10H0z" />
 </svg>`;
 
@@ -22,9 +24,12 @@ describe("buildTintedAssetSvg", () => {
 
     expect(result).toContain(`overflow="hidden"`);
     expect(result).toContain(`preserveAspectRatio="xMidYMid meet"`);
+    expect(result).toContain(`data-video-automaton-tint="default"`);
+    expect(result).toContain(`:where(path, rect, circle, ellipse, polygon, text, tspan) { fill: #12abef; }`);
     expect(result).toContain(`fill: #12abef`);
     expect(result).toContain(`stroke: #12abef`);
     expect(result).toContain(`fill="#12abef"`);
+    expect(result).toContain(`fill="none"`);
     expect(result).not.toContain("<image ");
     expect(result).not.toContain("data:image/svg+xml;base64");
   });
