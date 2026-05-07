@@ -301,7 +301,7 @@
 
     .override-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
       gap: 0.6rem;
     }
 
@@ -1628,6 +1628,16 @@
               />
             </div>
             <div class="field">
+              <label>Line Height</label>
+              <input
+                type="text"
+                data-style-element="${escapeHtml(elementName)}"
+                data-style-prop="lineHeight"
+                value="${escapeHtml(override.lineHeight || "")}"
+                placeholder="100%"
+              />
+            </div>
+            <div class="field">
               <label>X %</label>
               <input
                 type="number"
@@ -2382,6 +2392,7 @@
       Object.values(targetTextOverrides).forEach((override) => {
         delete override.fontSize;
         delete override.color;
+        delete override.lineHeight;
         delete override.x;
         delete override.y;
       });
@@ -2405,6 +2416,11 @@
 
         if (prop === "color") {
           targetTextOverrides[elementName].color = rawValue;
+          return;
+        }
+
+        if (prop === "lineHeight") {
+          targetTextOverrides[elementName].lineHeight = rawValue;
           return;
         }
 
