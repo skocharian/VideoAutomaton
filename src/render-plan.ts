@@ -740,11 +740,16 @@ function resolveTextLayout(
   layout: LayoutTextConfig,
   override: TextLayerOverride | undefined
 ): LayoutTextConfig {
+  const overrideFontSize = Number.isFinite(override?.fontSize)
+    ? Math.max(
+        Number(override?.fontSize),
+        getMinimumFontSizeForLayout(layout)
+      )
+    : undefined;
+
   return {
     ...layout,
-    ...(Number.isFinite(override?.fontSize)
-      ? { font_size: Number(override?.fontSize) }
-      : {}),
+    ...(Number.isFinite(overrideFontSize) ? { font_size: overrideFontSize } : {}),
     ...(typeof override?.fontFamily === "string" && override.fontFamily.trim()
       ? { font_family: override.fontFamily.trim() }
       : {}),
@@ -776,6 +781,18 @@ function resolveTextLayout(
       ? { y: override.y.trim() }
       : {}),
   };
+}
+
+function getMinimumFontSizeForLayout(layout: LayoutTextConfig): number {
+  if (layout.regionId === "content-header") {
+    return Math.min(layout.font_size, 42);
+  }
+
+  if (layout.regionId === "content-body") {
+    return Math.min(layout.font_size, 36);
+  }
+
+  return 1;
 }
 
 function pushScrimLayer(
@@ -935,14 +952,17 @@ function resolveTextAppearance(
       shadowBlur: 5,
       shadowY: 2,
     } satisfies ThemeSuggestion);
+  const overrideFontSize = Number.isFinite(override?.fontSize)
+    ? Math.max(
+        Number(override?.fontSize),
+        getMinimumFontSizeForLayout(layout)
+      )
+    : undefined;
 
   return {
     fillColor: override?.color?.trim() || layout.fill_color || baseTheme.fillColor,
     fontFamily: override?.fontFamily?.trim() || layout.font_family,
-    fontSize:
-      Number.isFinite(override?.fontSize) && Number(override?.fontSize) > 0
-        ? Number(override?.fontSize)
-        : layout.font_size,
+    fontSize: overrideFontSize ?? layout.font_size,
     fontWeight: override?.fontWeight ?? layout.font_weight,
     fontStyle: override?.fontStyle || layout.font_style,
     lineHeight: override?.lineHeight?.trim() || layout.line_height,
@@ -1309,7 +1329,7 @@ function buildContentFlowLayouts(
       headerText,
       canvas,
       {
-        minScale: 0.66,
+        minScale: 0.82,
         minimumHeight: header.height,
       }
     );
@@ -1335,7 +1355,7 @@ function buildContentFlowLayouts(
       bodyText,
       canvas,
       {
-        minScale: stripRichTextMarkup(headerText).trim() ? 0.62 : 0.72,
+        minScale: stripRichTextMarkup(headerText).trim() ? 0.78 : 0.84,
         minimumHeight: body.height,
       }
     );

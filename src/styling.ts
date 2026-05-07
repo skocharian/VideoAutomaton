@@ -334,7 +334,11 @@ function sanitizeLayerOverride(layer: StylingRecommendationLayer): StylingRecomm
   const sanitized: StylingRecommendationLayer = { key: layer.key };
 
   if (Number.isFinite(layer.fontSize)) {
-    sanitized.fontSize = clampNumber(Number(layer.fontSize), 10, 96);
+    sanitized.fontSize = clampNumber(
+      Number(layer.fontSize),
+      getMinimumSuggestedFontSize(layer.key),
+      96
+    );
   }
   if (isHexColor(layer.color)) {
     sanitized.color = normalizeHex(layer.color);
@@ -394,6 +398,18 @@ function sanitizeLayerOverride(layer: StylingRecommendationLayer): StylingRecomm
   }
 
   return sanitized;
+}
+
+function getMinimumSuggestedFontSize(key: string): number {
+  if (/^S\d+_Header$/i.test(key)) {
+    return 42;
+  }
+
+  if (/^S\d+_Body$/i.test(key)) {
+    return 36;
+  }
+
+  return 10;
 }
 
 function normalizeHex(value: string): string {
@@ -523,6 +539,7 @@ function buildUserContent(
       text:
         "Recommend styling overrides for these ad slides.\n" +
         "Primary goal: choose typography and mark treatment that reads clearly against the actual background and feels premium.\n" +
+        "Keep content-screen typography large and bold, similar to edited social ads. Do not make S*_Header smaller than about 42px or S*_Body smaller than about 36px unless it is a disclaimer.\n" +
         "You are allowed to keep white, but only when it is clearly the best choice. Otherwise choose a better contrasting hex color.\n" +
         "You may change font family and add stronger shadow, stroke, or glow-like blur when that improves readability.\n" +
         "For image layers such as accolade marks, you may return tintColor to adapt the mark to the background.\n" +
