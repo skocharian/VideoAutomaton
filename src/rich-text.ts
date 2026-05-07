@@ -143,29 +143,32 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
   const width = Math.max(1, Math.round(payload.width));
   const height = Math.max(1, Math.round(payload.height));
   const align = payload.align ?? "left";
-  const fontFamily = payload.fontFamily ?? "Georgia, 'Times New Roman', serif";
+  const fontFamily = normalizeSvgFontFamily(payload.fontFamily);
   const fontSize = payload.fontSize ?? 28;
   const fontWeight = payload.fontWeight ?? 600;
   const fontStyle = payload.fontStyle ?? "normal";
   const lineHeight = Math.max(
     resolveLineHeightPixels(payload.lineHeight ?? "100%", fontSize),
-    fontSize * 1.08
+    fontSize * 1.12
   );
   const letterSpacing = payload.letterSpacing;
   const color = payload.color ?? "#ffffff";
   const emphasisColor = payload.emphasisColor ?? color;
-  // SVG renderers do the final glyph layout. Keep wrapping slightly conservative
-  // so estimated text width does not push real rendered text outside the box.
-  const lines = layoutRichTextLines(payload.text, width * 0.9, fontSize, fontWeight);
+  // SVG renderers do the final glyph layout. Keep wrapping conservative so
+  // estimated text width does not push real rendered text outside the viewport.
+  const lines = layoutRichTextLines(payload.text, width * 0.72, fontSize, fontWeight);
   const visibleLineCount = Math.max(1, Math.floor(height / Math.max(1, lineHeight)));
   const visibleLines = lines.slice(0, visibleLineCount);
   const normalFilterId = payload.shadowColor ? "shadow" : "";
   const emphasisFilterId = payload.emphasisShadowColor ? "emphasis-shadow" : normalFilterId;
   const textElements: string[] = [];
+  const viewBoxPaddingX = Math.max(8, fontSize * 0.72);
+  const viewBoxPaddingY = Math.max(6, fontSize * 0.48);
 
   for (let lineIndex = 0; lineIndex < visibleLines.length; lineIndex += 1) {
     const line = visibleLines[lineIndex];
-    const startX = align === "center" ? Math.max(0, (width - line.width) / 2) : 0;
+    const startX = align === "center" ? width / 2 : 0;
+    const textAnchor = align === "center" ? ` text-anchor="middle"` : "";
     const baselineY = Math.max(fontSize, lineIndex * lineHeight + fontSize * 0.82);
     const lineSpans: string[] = [];
 
@@ -201,7 +204,7 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
     }
 
     textElements.push(
-      `<text x="${roundSvg(startX)}" y="${roundSvg(baselineY)}" font-family="${escapeXml(
+      `<text x="${roundSvg(startX)}" y="${roundSvg(baselineY)}"${textAnchor} font-family="${escapeXml(
         fontFamily
       )}" font-size="${roundSvg(fontSize)}" font-style="${escapeXml(
         fontStyle
@@ -210,7 +213,11 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
   }
 
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${roundSvg(
+      -viewBoxPaddingX
+    )} ${roundSvg(-viewBoxPaddingY)} ${roundSvg(width + viewBoxPaddingX * 2)} ${roundSvg(
+      height + viewBoxPaddingY * 2
+    )}" overflow="visible">`,
     payload.shadowColor
       ? buildShadowDefinition(
           normalFilterId,
@@ -557,6 +564,24 @@ function estimateCharacterWidth(char: string): number {
   if ("\"".includes(char)) return 0.28;
   if ("/\\|".includes(char)) return 0.32;
   return 0.56;
+}
+
+function normalizeSvgFontFamily(fontFamily: string | undefined): string {
+  const normalized = fontFamily?.trim();
+  if (!normalized) {
+    return "serif";
+  }
+
+  const lower = normalized.toLowerCase();
+  if (lower.includes("georgia") || lower.includes("times")) {
+    return "serif";
+  }
+
+  if (lower.includes("open sans") || lower.includes("arial") || lower.includes("sans")) {
+    return "sans-serif";
+  }
+
+  return normalized.split(",")[0].replace(/^['"]|['"]$/g, "") || "serif";
 }
 
 function resolveLineHeightPixels(

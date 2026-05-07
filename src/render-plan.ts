@@ -79,7 +79,9 @@ type ElementKeys = {
 
 type RenderAnimation = Record<string, RenderValue>;
 
-const RICH_TEXT_SVG_URL_VERSION = "2";
+const RICH_TEXT_SVG_URL_VERSION = "3";
+const RICH_TEXT_WRAP_WIDTH_RATIO = 0.72;
+const RICH_TEXT_MIN_LINE_HEIGHT_RATIO = 1.12;
 
 type RichTextRenderContext = {
   assetBaseUrl: string;
@@ -1491,7 +1493,7 @@ function estimateTextHeight(
   fontWeight: number | string
 ): number {
   const lines = estimateWrappedLineCount(text, widthPx, fontSize, fontWeight);
-  return lines * fontSize * lineHeightRatio;
+  return lines * fontSize * Math.max(lineHeightRatio, RICH_TEXT_MIN_LINE_HEIGHT_RATIO);
 }
 
 function estimateWrappedLineCount(
@@ -1502,7 +1504,10 @@ function estimateWrappedLineCount(
 ): number {
   const numericWeight = normalizeFontWeightForMetrics(fontWeight);
   const avgCharWidth = fontSize * (numericWeight >= 700 ? 0.61 : 0.58);
-  const maxCharsPerLine = Math.max(1, Math.floor(widthPx / avgCharWidth));
+  const maxCharsPerLine = Math.max(
+    1,
+    Math.floor((widthPx * RICH_TEXT_WRAP_WIDTH_RATIO) / avgCharWidth)
+  );
 
   return text
     .split("\n")
