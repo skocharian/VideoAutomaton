@@ -124,7 +124,7 @@ function extractVariants(brief: string): Variant[] {
   const variants: Variant[] = [];
   const normalizedBrief = brief.replace(/\r\n/g, "\n");
   const variantBlockPattern =
-    /(?:^|\n)\s*V(\d+)\s*[:\-–]\s*([\s\S]*?)(?=(?:\n\s*V\d+\s*[:\-–])|(?:\n\s*(?:Screen|S)\s*\d+\s*[:\-–])|$)/gi;
+    /(?:^|\n)\s*V(\d+)\s*[:\-–]\s*([\s\S]*?)(?=(?:\n\s*V\d+\s*[:\-–])|(?:\n\s*(?:Screen|S)\s*\d+(?:\s*\([^)]*\))?(?:\s*[:\-–]|\s+|$))|(?:\n\s*(?:\*\*|__)?\s*From\s+screen\s+\d+\s+on\b)|$)/gi;
 
   let match;
   while ((match = variantBlockPattern.exec(normalizedBrief)) !== null) {
@@ -138,12 +138,16 @@ function extractVariants(brief: string): Variant[] {
 
     if (lines.length === 0) continue;
 
-    const inlineSplit = lines[0].match(/^(.*?)\s*[\/|]\s*(.+)$/);
+    const boundaryIndex = lines.findIndex(isVariantBoundaryLine);
+    const variantLines = boundaryIndex >= 0 ? lines.slice(0, boundaryIndex) : lines;
+    if (variantLines.length === 0) continue;
+
+    const inlineSplit = variantLines[0].match(/^(.*?)(?:\s+\/\s+|\s+\|\s+)(.+)$/);
     const headline = stripEnclosingQuotes(
-      inlineSplit ? inlineSplit[1] : lines[0]
+      inlineSplit ? inlineSplit[1] : variantLines[0]
     );
     const subheadline = stripEnclosingQuotes(
-      inlineSplit ? inlineSplit[2] : lines.slice(1).join("\n")
+      inlineSplit ? inlineSplit[2] : variantLines.slice(1).join("\n")
     );
 
     variants.push({
@@ -154,6 +158,18 @@ function extractVariants(brief: string): Variant[] {
   }
 
   return variants;
+}
+
+function isVariantBoundaryLine(line: string): boolean {
+  const normalized = stripRichTextMarkup(line)
+    .replace(/^(\*\*|__)\s*/, "")
+    .replace(/\s*(\*\*|__)$/, "")
+    .trim();
+
+  return (
+    /^(?:Screen|S)\s*\d+(?:\s*\([^)]*\))?(?:\s*[:\-–]|\s+|$)/i.test(normalized) ||
+    /^From\s+screen\s+\d+\s+on\b/i.test(normalized)
+  );
 }
 
 function stripEnclosingQuotes(value: string): string {

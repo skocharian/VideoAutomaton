@@ -406,6 +406,11 @@
       filter: drop-shadow(0 3px 10px rgba(7, 26, 56, 0.32));
     }
 
+    .preview-image-layer.is-rich-text img {
+      filter: none;
+      image-rendering: auto;
+    }
+
     .preview-shape-layer {
       pointer-events: none;
     }
@@ -1905,8 +1910,9 @@
       }
 
       if (layer.type === "image") {
+        const richTextClass = layer.text ? " is-rich-text" : "";
         return `
-          <div class="preview-image-layer" style="${sharedStyle}">
+          <div class="preview-image-layer${richTextClass}" style="${sharedStyle}">
             <img src="${escapeHtml(layer.src || "")}" alt="${escapeHtml(layer.key)}" style="object-fit:${escapeHtml(layer.fit || "contain")}" loading="lazy" />
           </div>
         `;

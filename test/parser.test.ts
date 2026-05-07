@@ -116,6 +116,42 @@ Body: Your breathing triggers how your nervous system reacts.
     expect(result.screens["2"].header).toBe("The science is clear");
   });
 
+  it("stops variant parsing before bare screen headings and production notes", () => {
+    const brief = `
+Screen 1:
+
+V1:
+Your brain "/**shoots**/"** **you with **anxiety**
+(and you don’t even notice)
+
+**From screen 2 on, please use a phased approach to sentences - first sentence, second sentence, third, etc.**
+
+Screen 2
+Something **stressful **happens for real.      (first)
+That’s the first "/**shot**/".                 (second)
+
+Screen 3
+Then your mind starts spinning,                (first)
+piling on more **anxious thoughts.**           (second)
+    `.trim();
+
+    const result = parseBrief({ ...baseBriefReq, brief });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]).toEqual({
+      id: "V1",
+      headline: `Your brain "/**shoots**/"** **you with **anxiety**`,
+      subheadline: "(and you don’t even notice)",
+    });
+    expect(result.screens["2"]).toEqual({
+      header: "Something **stressful **happens for real.",
+      body: `That’s the first "/**shot**/".`,
+    });
+    expect(result.screens["3"]).toEqual({
+      header: "Then your mind starts spinning,",
+      body: "piling on more **anxious thoughts.**",
+    });
+  });
+
   it("extracts screens with header/body labels", () => {
     const brief = `
 Screen 2:

@@ -154,22 +154,20 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
   const letterSpacing = payload.letterSpacing;
   const color = payload.color ?? "#ffffff";
   const emphasisColor = payload.emphasisColor ?? color;
-  // SVG renderers do the final glyph layout. Keep wrapping conservative so
-  // estimated text width does not push real rendered text outside the viewport.
-  const lines = layoutRichTextLines(payload.text, width * 0.72, fontSize, fontWeight);
-  const visibleLineCount = Math.max(1, Math.floor(height / Math.max(1, lineHeight)));
-  const visibleLines = lines.slice(0, visibleLineCount);
   const normalFilterId = payload.shadowColor ? "shadow" : "";
   const emphasisFilterId = payload.emphasisShadowColor ? "emphasis-shadow" : normalFilterId;
   const textElements: string[] = [];
   const viewBoxPaddingX = Math.max(8, fontSize * 0.72);
   const viewBoxPaddingY = Math.max(6, fontSize * 0.48);
+  const contentWidth = Math.max(1, width - viewBoxPaddingX * 2);
+  const lines = layoutRichTextLines(payload.text, contentWidth, fontSize, fontWeight);
+  const visibleLines = lines;
 
   for (let lineIndex = 0; lineIndex < visibleLines.length; lineIndex += 1) {
     const line = visibleLines[lineIndex];
-    const startX = align === "center" ? width / 2 : 0;
+    const startX = align === "center" ? width / 2 : viewBoxPaddingX;
     const textAnchor = align === "center" ? ` text-anchor="middle"` : "";
-    const baselineY = Math.max(fontSize, lineIndex * lineHeight + fontSize * 0.82);
+    const baselineY = viewBoxPaddingY + Math.max(fontSize, lineIndex * lineHeight + fontSize * 0.82);
     const lineSpans: string[] = [];
 
     for (const token of line.tokens) {
@@ -213,11 +211,7 @@ function buildFullRichTextSvg(payload: RichTextPayload): string {
   }
 
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${roundSvg(
-      -viewBoxPaddingX
-    )} ${roundSvg(-viewBoxPaddingY)} ${roundSvg(width + viewBoxPaddingX * 2)} ${roundSvg(
-      height + viewBoxPaddingY * 2
-    )}" overflow="visible">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="visible">`,
     payload.shadowColor
       ? buildShadowDefinition(
           normalFilterId,

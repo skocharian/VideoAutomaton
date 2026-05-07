@@ -79,8 +79,8 @@ type ElementKeys = {
 
 type RenderAnimation = Record<string, RenderValue>;
 
-const RICH_TEXT_SVG_URL_VERSION = "3";
-const RICH_TEXT_WRAP_WIDTH_RATIO = 0.72;
+const RICH_TEXT_SVG_URL_VERSION = "4";
+const RICH_TEXT_WRAP_WIDTH_RATIO = 0.9;
 const RICH_TEXT_MIN_LINE_HEIGHT_RATIO = 1.12;
 
 type RichTextRenderContext = {
